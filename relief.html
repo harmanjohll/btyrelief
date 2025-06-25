@@ -166,7 +166,6 @@
             const absenceDateStr = document.getElementById('absence-date').value;
             if (!absenceDateStr) return alert("Please select a date of absence.");
             
-            // CORRECTED: Ensure the date from the input is treated as UTC from the start.
             const dateParts = absenceDateStr.split('-').map(Number);
             const absenceDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
 
@@ -326,10 +325,16 @@
                 statusDiv.classList.replace('bg-yellow-100', 'bg-green-100');
                 statusDiv.classList.replace('text-yellow-800', 'text-green-800');
 
-                document.getElementById('find-btn').disabled = false;
-                document.getElementById('find-btn').classList.replace('bg-gray-400', 'bg-blue-600');
-                document.getElementById('absent-teacher').disabled = false;
-                document.getElementById('absent-teacher').classList.remove('bg-gray-200');
+                const findBtn = document.getElementById('find-btn');
+                const teacherSelect = document.getElementById('absent-teacher');
+
+                findBtn.disabled = false;
+                findBtn.classList.replace('bg-gray-400', 'bg-blue-600');
+                teacherSelect.disabled = false;
+                teacherSelect.classList.remove('bg-gray-200');
+                
+                // CORRECTED: Call applyUrlParameters() AFTER all data is processed and the form is enabled.
+                applyUrlParameters();
             })
             .catch(error => {
                 console.error('Failed to fetch data:', error);
