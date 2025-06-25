@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relief Teacher Finder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        label { @apply block text-sm font-medium text-gray-700 mb-1; }
+        input, select { @apply mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm; }
+        input[type="file"]::file-selector-button {
+            @apply mr-4 px-4 py-2 bg-gray-100 border-0 rounded-md font-semibold text-gray-700 hover:bg-gray-200 cursor-pointer;
+        }
+        /* Styles for the modal */
+        .modal {
+            @apply fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center;
+        }
+        .modal-content {
+            @apply relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <div class="max-w-5xl mx-auto bg-white rounded-xl shadow-md">
+            <div class="p-8">
+                <header class="mb-8">
+                    <h1 class="text-3xl font-bold text-gray-900">Relief Teacher Finder</h1>
+                    <p class="mt-2 text-gray-600">Find, select, and generate notifications for relief teachers.</p>
+                </header>
+                
+                <div class="mb-8">
+                    <label for="csv-file">Upload Timetable CSV (with NAME and EMAIL columns)</label>
+                    <input type="file" id="csv-file" accept=".csv" class="border p-2 w-full">
+                    <p id="file-status" class="text-sm text-gray-500 mt-2">No file selected. Using default sample data.</p>
+                </div>
+
+                <form id="relief-form" class="mb-8 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">1. Search for Relief</h2>
+                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div>
+                            <label for="absent-teacher">Absent Teacher</label>
+                            <select id="absent-teacher" name="absent-teacher" required></select>
+                        </div>
+                        <div>
+                            <label for="week-type">Week</label>
+                            <select id="week-type" name="week-type"><option>Odd</option><option>Even</option></select>
+                        </div>
+                        <div>
+                            <label for="day">Day</label>
+                            <select id="day" name="day"><option>Mon</option><option>Tue</option><option>Wed</option><option>Thu</option><option>Fri</option></select>
+                        </div>
+                    </div>
+                     <div class="mt-6">
+                         <label class="text-sm font-medium text-gray-700">Relief Type</label>
+                         <div class="flex items-center space-x-4 mt-2">
+                            <label class="flex items-center"><input type="radio" name="relief-type" value="all-day" checked class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300"> <span class="ml-2">Whole Day</span></label>
+                            <label class="flex items-center"><input type="radio" name="relief-type" value="specific-periods" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300"> <span class="ml-2">Specific Periods</span></label>
+                         </div>
+                    </div>
+                    <div id="periods-checkboxes" class="mt-4 hidden"><label>Select Periods (0-11)</label><div class="grid grid-cols-6 md:grid-cols-12 gap-2 mt-2 p-4 bg-white rounded-md border"></div></div>
+                    <div class="text-center mt-6">
+                        <button type="submit" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">Find Available Teachers</button>
+                    </div>
+                </form>
+
+                <div id="results-area">
+                    <div id="results-section" class="hidden">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4">2. Select Relief Teachers</h2>
+                        <div id="results-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+                        <div class="text-center mt-8">
+                            <button id="generate-email-btn" class="bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition-transform transform hover:scale-105">
+                                Generate Notification
+                            </button>
+                        </div>
+                    </div>
+                    <div id="initial-message" class="text-center p-4 bg-gray-100 rounded-lg"><p class="text-gray-500">Results will be displayed here after a search.</p></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Email Modal -->
+    <div id="email-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Generated Email Notification</h3>
+            <p class="text-sm text-gray-600 mb-4">Your email client should open. If not, you can copy the details below manually.</p>
+            <div>
+                <label class="font-semibold">To:</label>
+                <p id="email-to" class="text-sm p-2 bg-gray-100 rounded break-words"></p>
+            </div>
+            <div class="mt-2">
+                <label class="font-semibold">Subject:</label>
+                <p id="email-subject" class="text-sm p-2 bg-gray-100 rounded"></p>
+            </div>
+            <div class="mt-2">
+                <label class="font-semibold">Body:</label>
+                <textarea id="email-body" rows="10" class="w-full text-sm p-2 bg-gray-100 rounded"></textarea>
+            </div>
+            <div class="mt-6 flex justify-end items-center space-x-4">
+                <button id="close-modal-btn" class="text-gray-600 hover:text-gray-800">Close</button>
+                <a id="mailto-link" href="#" target="_blank" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700">Open in Email Client</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- GLOBAL STATE & DEFAULT DATA ---
+        let teacherTimetableData = [];
+        const defaultRawCsvData = `DEPARTMENT,SUBJECT,NAME,EMAIL,OddMon0,OddMon1,OddMon2,OddMon3,OddMon4,OddMon5,OddMon6,OddMon7,OddMon8,OddMon9,OddMon10,OddMon11,OddTue0,OddTue1,OddTue2,OddTue3,OddTue4,OddTue5,OddTue6,OddTue7,OddTue8,OddTue9,OddTue10,OddTue11,OddWed0,OddWed1,OddWed2,OddWed3,OddWed4,OddWed5,OddWed6,OddWed7,OddWed8,OddWed9,OddWed10,OddWed11,OddThu0,OddThu1,OddThu2,OddThu3,OddThu4,OddThu5,OddThu6,OddThu7,OddThu8,OddThu9,OddThu10,OddThu11,OddFri0,OddFri1,OddFri2,OddFri3,OddFri4,OddFri5,OddFri6,OddFri7,OddFri8,EvenMon0,EvenMon1,EvenMon2,EvenMon3,EvenMon4,EvenMon5,EvenMon6,EvenMon7,EvenMon8,EvenMon9,EvenMon10,EvenMon11,EvenTue0,EvenTue1,EvenTue2,EvenTue3,EvenTue4,EvenTue5,EvenTue6,EvenTue7,EvenTue8,EvenTue9,EvenTue10,EvenTue11,EvenThu0,EvenThu1,EvenThu2,EvenThu3,EvenThu4,EvenThu5,EvenThu6,EvenThu7,EvenThu8,EvenThu9,EvenThu10,EvenThu11,EvenFri0,EvenFri1,EvenFri2,EvenFri3,EvenFri4,EvenFri5,EvenFri6,EvenFri7,EvenFri8
+A&T,Art,MDM JANNE NG,janne.ng@school.edu,1,1,1,0,0,0,0,0,0,0,1,1,1,1,1,0,0,1,1,1,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,0,0,1,1,1,1,1,0,0,0,0,1,1,1,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,1,1,1,1,0,0,1,1,1,0,0,0,0,0,0
+SCIENCE,Chemistry,MS SHERRY HOI,sherry.hoi@school.edu,1,1,1,1,1,0,1,1,1,1,0,0,1,0,0,1,1,0,1,1,0,1,1,1,1,0,0,0,1,1,1,1,0,0,0,0,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,1,1,1,0,1,0,0,1,1,1,1,1,1,1,1,1,0,0,0,1,0,1,0,1,0,0,1,0,1,1`;
+
+        // --- CORE LOGIC ---
+
+        function parseCsvData(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+            const headers = lines.shift().split(',').map(h => h.trim().toUpperCase());
+            return lines.map(line => {
+                if (!line.trim()) return null;
+                const values = line.split(',');
+                const teacherObj = {};
+                headers.forEach((header, index) => {
+                    const value = values[index] ? values[index].trim() : '';
+                    if (header === 'NAME') teacherObj['Name'] = value;
+                    else if (header === 'DEPARTMENT') teacherObj['Department'] = value;
+                    else if (header === 'SUBJECT') teacherObj['Subject'] = value;
+                    else if (header === 'EMAIL') teacherObj['Email'] = value;
+                    else teacherObj[header.toLowerCase().replace(/[^a-z0-9]/gi, '')] = isNaN(parseInt(value, 10)) ? value : parseInt(value, 10);
+                });
+                return teacherObj;
+            }).filter(Boolean);
+        }
+
+        function processAndPopulateData(csvText) {
+            teacherTimetableData = parseCsvData(csvText);
+            const select = document.getElementById('absent-teacher');
+            select.innerHTML = '';
+            if (!teacherTimetableData.length) {
+                select.innerHTML = '<option disabled>No teachers found</option>';
+                return;
+            }
+            teacherTimetableData.sort((a, b) => a.Name.localeCompare(b.Name));
+            teacherTimetableData.forEach(t => {
+                select.innerHTML += `<option value="${t.Name}">${t.Name} (${t.Department})</option>`;
+            });
+        }
+        
+        function handleFormSubmit(event) {
+            event.preventDefault();
+            const absentTeacherName = document.getElementById('absent-teacher').value;
+            const absentTeacher = teacherTimetableData.find(t => t.Name === absentTeacherName);
+            if (!absentTeacher) return alert("Absent teacher not found.");
+            
+            const reliefWeekType = document.getElementById('week-type').value;
+            const reliefDay = document.getElementById('day').value;
+            const reliefType = document.querySelector('input[name="relief-type"]:checked').value;
+            
+            let potentialPeriods = (reliefType === 'all-day') 
+                ? Array.from({length: 12}, (_, i) => i) 
+                : Array.from(document.querySelectorAll('#periods-checkboxes input:checked')).map(cb => parseInt(cb.value));
+            
+            const requiredPeriods = potentialPeriods.filter(p => {
+                const key = `${reliefWeekType}${reliefDay}${p}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
+                return absentTeacher[key] === 1;
+            });
+            
+            if (!requiredPeriods.length) {
+                alert("The selected teacher has no classes during the specified day/periods.");
+                document.getElementById('results-section').classList.add('hidden');
+                document.getElementById('initial-message').classList.remove('hidden');
+                return;
+            }
+            findReliefByPeriod(absentTeacher, reliefWeekType, reliefDay, requiredPeriods);
+        }
+
+        function calculateDailyLoad(teacher, weekType, day) {
+            let load = 0;
+            for (let period = 0; period < 12; period++) {
+                const key = `${weekType}${day}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
+                if (teacher[key] === 1) load++;
+            }
+            return load;
+        }
+
+        function findReliefByPeriod(absentTeacher, reliefWeekType, reliefDay, requiredPeriods) {
+            const resultsGrid = document.getElementById('results-grid');
+            resultsGrid.innerHTML = ''; 
+
+            for (const period of requiredPeriods) {
+                const periodKey = `${reliefWeekType}${reliefDay}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
+                
+                let idealMatches = [];
+                let departmentMatches = [];
+
+                teacherTimetableData.forEach(candidate => {
+                    if (candidate.Name === absentTeacher.Name) return;
+                    if (candidate[periodKey] === 0) {
+                        const dailyLoad = calculateDailyLoad(candidate, reliefWeekType, reliefDay);
+                        if (dailyLoad >= 8) return;
+                        const candidateWithLoad = { ...candidate, dailyLoad };
+                        if (candidate.Subject === absentTeacher.Subject) idealMatches.push(candidateWithLoad);
+                        else if (candidate.Department === absentTeacher.Department) departmentMatches.push(candidateWithLoad);
+                    }
+                });
+                
+                idealMatches.sort((a, b) => a.dailyLoad - b.dailyLoad);
+                departmentMatches.sort((a, b) => a.dailyLoad - b.dailyLoad);
+                
+                resultsGrid.innerHTML += createPeriodResultCard(period, periodKey, idealMatches, departmentMatches);
+            }
+            
+            document.getElementById('results-section').classList.remove('hidden');
+            document.getElementById('initial-message').classList.add('hidden');
+        }
+
+        function createPeriodResultCard(period, periodKey, ideal, department) {
+            const hasResults = ideal.length > 0 || department.length > 0;
+            let content = `
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-col">
+                    <h3 class="text-lg font-bold text-gray-800">Period ${period}</h3>
+                    <div class="mt-3 space-y-3 flex-grow">`;
+            
+            if (hasResults) {
+                if (ideal.length > 0) content += createSelectionList('Ideal Match', 'text-green-700', period, ideal);
+                if (department.length > 0) content += createSelectionList('Department Match', 'text-yellow-700', period, department);
+            } else {
+                content += `<p class="text-red-600 italic">No suitable teachers found.</p>`;
+            }
+            
+            content += `</div></div>`;
+            return content;
+        }
+
+        function createSelectionList(title, titleColor, period, teachers) {
+            let listHtml = `<div><h4 class="font-semibold ${titleColor}">${title}</h4><ul class="list-none pl-1 mt-1 text-sm space-y-1">`;
+            listHtml += teachers.map(t => `
+                <li>
+                    <label class="flex items-center p-1 rounded-md hover:bg-gray-200 cursor-pointer">
+                        <input type="radio" name="relief-period-${period}" value="${t.Name}" data-email="${t.Email}" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300">
+                        <span class="ml-2">${t.Name} <span class="text-gray-500">(${t.dailyLoad} periods)</span></span>
+                    </label>
+                </li>
+            `).join('');
+            listHtml += `</ul></div>`;
+            return listHtml;
+        }
+        
+        function handleGenerateEmail() {
+            const selected = document.querySelectorAll('input[type="radio"]:checked');
+            if(selected.length === 0) return alert("Please select at least one teacher for relief duty.");
+
+            const assignments = {};
+            const emailSet = new Set();
+
+            selected.forEach(radio => {
+                const period = radio.name.replace('relief-period-', '');
+                const teacherName = radio.value;
+                const teacherEmail = radio.dataset.email;
+                
+                if (!assignments[teacherName]) {
+                    assignments[teacherName] = { periods: [], email: teacherEmail };
+                }
+                assignments[teacherName].periods.push(period);
+                if(teacherEmail) emailSet.add(teacherEmail);
+            });
+
+            const absentTeacher = teacherTimetableData.find(t => t.Name === document.getElementById('absent-teacher').value);
+            const week = document.getElementById('week-type').value;
+            const day = document.getElementById('day').value;
+            const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+            // Construct Email
+            const to = Array.from(emailSet).join(',');
+            const subject = `Relief Duty Assignment for ${absentTeacher.Name} - ${week} Week, ${day}`;
+            let body = `Dear Colleagues,\n\nPlease help to cover the following period(s) for ${absentTeacher.Name}, who is away on ${week} week, ${day}.\n\nRelief Assignments:\n`;
+            for (const name in assignments) {
+                body += `\n- ${name}:\n  Period(s): ${assignments[name].periods.sort((a,b) => a-b).join(', ')}\n`;
+            }
+            body += `\nThank you for your assistance.\n\n\n(This email was generated on ${today} by the Relief Finder.)`;
+            
+            // Populate and show modal
+            document.getElementById('email-to').textContent = to || "No valid emails found for selected teachers.";
+            document.getElementById('email-subject').textContent = subject;
+            document.getElementById('email-body').value = body;
+            const mailto = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            document.getElementById('mailto-link').href = mailto;
+            document.getElementById('email-modal').classList.remove('hidden');
+        }
+
+        // --- INITIALIZATION & EVENT LISTENERS ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const checkboxContainer = document.querySelector('#periods-checkboxes > div');
+            for (let i = 0; i < 12; i++) {
+                checkboxContainer.innerHTML += `<label class="flex items-center justify-center space-x-2 p-2 rounded-md hover:bg-gray-100 cursor-pointer"><input type="checkbox" value="${i}" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"><span class="text-sm">${i}</span></label>`;
+            }
+
+            document.getElementById('relief-form').addEventListener('submit', handleFormSubmit);
+            document.querySelectorAll('input[name="relief-type"]').forEach(radio => {
+                radio.addEventListener('change', e => {
+                    document.getElementById('periods-checkboxes').style.display = (e.target.value === 'specific-periods') ? 'block' : 'none';
+                });
+            });
+            
+            document.getElementById('csv-file').addEventListener('change', e => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = re => {
+                        document.getElementById('file-status').textContent = `Loaded: ${file.name}`;
+                        processAndPopulateData(re.target.result);
+                    };
+                    reader.readAsText(file);
+                }
+            });
+            
+            document.getElementById('generate-email-btn').addEventListener('click', handleGenerateEmail);
+            document.getElementById('close-modal-btn').addEventListener('click', () => {
+                document.getElementById('email-modal').classList.add('hidden');
+            });
+
+            processAndPopulateData(defaultRawCsvData);
+        });
+    </script>
+</body>
+</html>
