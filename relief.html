@@ -117,7 +117,7 @@
 
             const select = document.getElementById('absent-teacher');
             select.innerHTML = '';
-            teacherTimetableData.sort((a, b) => a.NAME.localeCompare(b.NAME));
+            // teacherTimetableData.sort((a, b) => a.NAME.localeCompare(b.NAME)); // This line is removed to maintain CSV order.
             teacherTimetableData.forEach(t => {
                 select.innerHTML += `<option value="${t.NAME}">${t.NAME} (${t.DEPARTMENT})</option>`;
             });
