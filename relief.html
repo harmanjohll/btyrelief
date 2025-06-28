@@ -14,6 +14,7 @@
         input, select { @apply mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm; }
         .modal { @apply fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50; }
         .modal-content { @apply relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white; }
+        .workload-heavy { @apply text-red-600 font-bold; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -57,7 +58,14 @@
 
                 <div id="results-area">
                     <div id="results-section" class="hidden">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-4">2. Select Relief Teachers</h2>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-2">2. Select Relief Teachers</h2>
+                        <div class="p-3 mb-4 bg-gray-100 rounded-lg text-xs text-gray-600">
+                            <b>Legend:</b> 
+                            <span class="ml-2"><b>CT:</b> Current Total Periods</span>
+                            <span class="ml-2"><b>CCP:</b> Current Consecutive Periods</span>
+                            <span class="ml-2"><b>RT:</b> Resulting Total Periods</span>
+                            <span class="ml-2"><b>RCP:</b> Resulting Consecutive Periods</span>
+                        </div>
                         <div id="results-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
                         <div class="text-center mt-8"><button id="generate-email-btn" class="bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700">Generate Notification</button></div>
                     </div>
@@ -83,6 +91,7 @@
     <script>
         let teacherTimetableData = [];
         let calendarData = new Map();
+        let currentDayInfo = {}; // To store weekType and dayShortName for dynamic calcs
 
         // --- DATA FETCHING AND PARSING ---
         function parseCsv(csvText) {
@@ -114,10 +123,8 @@
                 }
                 return teacherObj;
             });
-
             const select = document.getElementById('absent-teacher');
             select.innerHTML = '';
-            // teacherTimetableData.sort((a, b) => a.NAME.localeCompare(b.NAME)); // This line is removed to maintain CSV order.
             teacherTimetableData.forEach(t => {
                 select.innerHTML += `<option value="${t.NAME}">${t.NAME} (${t.DEPARTMENT})</option>`;
             });
@@ -129,7 +136,6 @@
                 const dateStr = row['StartofWeek'];
                 const weekType = row['EvenorOdd'];
                 if (dateStr && weekType) {
-                    // Assuming date is in DD-Mon-YY format
                     const parts = dateStr.split('-');
                     if (parts.length < 3) return;
                     const day = parseInt(parts[0], 10);
@@ -137,26 +143,44 @@
                     const year = parseInt(parts[2], 10) + 2000;
                     const monthIndex = "JanFebMarAprMayJunJulAugSepOctNovDec".indexOf(monthStr) / 3;
                     if (monthIndex < 0) return;
-                    // Use UTC to avoid timezone issues
                     const dateObj = new Date(Date.UTC(year, monthIndex, day));
                     calendarData.set(dateObj.getTime(), weekType.trim());
                 }
             });
         }
         
-        // --- DATE LOGIC ---
+        // --- DATE & WORKLOAD LOGIC ---
         function getWeekInfo(targetDate) {
-            const dayOfWeek = targetDate.getUTCDay(); // 0=Sun, 1=Mon...
-            const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // get to Monday
+            const dayOfWeek = targetDate.getUTCDay();
+            const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
             const mondayDate = new Date(targetDate.getTime());
             mondayDate.setUTCDate(targetDate.getUTCDate() - daysToSubtract);
-
             const weekType = calendarData.get(mondayDate.getTime());
             const dayShortName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][targetDate.getUTCDay()];
-            
             return { weekType, dayShortName };
         }
 
+        function getDailySchedule(teacher, weekType, day) {
+            let schedule = [];
+            for (let period = 0; period < 12; period++) {
+                const key = `${weekType}${day}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
+                schedule.push(teacher[key] === 1 ? 1 : 0);
+            }
+            return schedule;
+        }
+        
+        function calculateConsecutivePeriods(schedule) {
+            let maxConsecutive = 0, currentConsecutive = 0;
+            for (const period of schedule) {
+                if (period === 1) currentConsecutive++;
+                else {
+                    maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+                    currentConsecutive = 0;
+                }
+            }
+            return Math.max(maxConsecutive, currentConsecutive);
+        }
+        
         // --- FORM SUBMISSION & RELIEF FINDING ---
         function handleFormSubmit(event) {
             if (event) event.preventDefault();
@@ -165,13 +189,14 @@
             if (!absentTeacher) return alert("Absent teacher not found.");
             
             const absenceDateStr = document.getElementById('absence-date').value;
-            if (!absenceDateStr) return alert("Please select a date of absence.");
-            
+            if (!absenceDateStr) return alert("Please select a date.");
             const dateParts = absenceDateStr.split('-').map(Number);
             const absenceDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
 
             const { weekType, dayShortName } = getWeekInfo(absenceDate);
-            if (!weekType) return alert(`The week type for ${absenceDate.toUTCString().slice(0, 16)} could not be found in the calendar reference file. Please check the date or the CSV file.`);
+            if (!weekType) return alert(`Week type for ${absenceDate.toUTCString().slice(0, 16)} not found.`);
+            
+            currentDayInfo = { weekType, dayShortName }; // Store for dynamic updates
 
             const reliefType = document.querySelector('input[name="relief-type"]:checked').value;
             let potentialPeriods = (reliefType === 'all-day') 
@@ -189,43 +214,84 @@
                 document.getElementById('initial-message').classList.remove('hidden');
                 return;
             }
-            findReliefByPeriod(absentTeacher, weekType, dayShortName, requiredPeriods);
+            findReliefByPeriod(absentTeacher, requiredPeriods);
         }
-
-        function calculateDailyLoad(teacher, weekType, day) {
-            let load = 0;
-            for (let period = 0; period < 12; period++) {
-                const key = `${weekType}${day}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
-                if (teacher[key] === 1) load++;
-            }
-            return load;
-        }
-
-        function findReliefByPeriod(absentTeacher, reliefWeekType, reliefDay, requiredPeriods) {
+        
+        function findReliefByPeriod(absentTeacher, requiredPeriods) {
             const resultsGrid = document.getElementById('results-grid');
             resultsGrid.innerHTML = ''; 
 
             for (const period of requiredPeriods) {
-                const periodKey = `${reliefWeekType}${reliefDay}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
-                let idealMatches = [];
-                let departmentMatches = [];
+                let idealMatches = [], departmentMatches = [];
                 teacherTimetableData.forEach(candidate => {
                     if (candidate.NAME === absentTeacher.NAME) return;
-                    if (candidate[periodKey] === 0) {
-                        const dailyLoad = calculateDailyLoad(candidate, reliefWeekType, reliefDay);
-                        if (dailyLoad >= 8) return; 
-                        const candidateWithLoad = { ...candidate, dailyLoad };
-                        if (candidate.SUBJECT === absentTeacher.SUBJECT) idealMatches.push(candidateWithLoad);
-                        else if (candidate.DEPARTMENT === absentTeacher.DEPARTMENT) departmentMatches.push(candidateWithLoad);
-                    }
+                    
+                    const periodKey = `${currentDayInfo.weekType}${currentDayInfo.dayShortName}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
+                    if (candidate[periodKey] === 1) return;
+                    
+                    const dailySchedule = getDailySchedule(candidate, currentDayInfo.weekType, currentDayInfo.dayShortName);
+                    const CT = dailySchedule.reduce((a, b) => a + b, 0);
+                    if (CT >= 8) return; 
+                    
+                    const CCP = calculateConsecutivePeriods(dailySchedule);
+                    const newDailySchedule = [...dailySchedule];
+                    newDailySchedule[period] = 1;
+                    const RCP = calculateConsecutivePeriods(newDailySchedule);
+                    
+                    const candidateWithMetrics = { ...candidate, CT, CCP, RT: CT + 1, RCP };
+
+                    if (candidate.SUBJECT === absentTeacher.SUBJECT) idealMatches.push(candidateWithMetrics);
+                    else if (candidate.DEPARTMENT === absentTeacher.DEPARTMENT) departmentMatches.push(candidateWithMetrics);
                 });
-                idealMatches.sort((a, b) => a.dailyLoad - b.dailyLoad);
-                departmentMatches.sort((a, b) => a.dailyLoad - b.dailyLoad);
+
+                const sortByWorkload = (a, b) => a.RCP !== b.RCP ? a.RCP - b.RCP : a.CT - b.CT;
+                idealMatches.sort(sortByWorkload);
+                departmentMatches.sort(sortByWorkload);
+                
                 resultsGrid.innerHTML += createPeriodResultCard(period, idealMatches, departmentMatches);
             }
             document.getElementById('results-section').classList.remove('hidden');
             document.getElementById('initial-message').classList.add('hidden');
         }
+
+        // --- DYNAMIC RECALCULATION ON SELECTION ---
+        function updateAllRCPs() {
+            const selections = {}; // { teacherName: [selected_periods] }
+            document.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
+                const name = radio.value;
+                const period = parseInt(radio.name.replace('relief-period-', ''));
+                if (!selections[name]) selections[name] = [];
+                selections[name].push(period);
+            });
+
+            document.querySelectorAll('#results-grid input[type="radio"]').forEach(radio => {
+                const teacherName = radio.value;
+                const periodToTest = parseInt(radio.name.replace('relief-period-', ''));
+                const teacher = teacherTimetableData.find(t => t.NAME === teacherName);
+                if (!teacher) return;
+                
+                const baseSchedule = getDailySchedule(teacher, currentDayInfo.weekType, currentDayInfo.dayShortName);
+                const hypotheticalSchedule = [...baseSchedule];
+                
+                // Add currently selected periods for this teacher
+                if (selections[teacherName]) {
+                    selections[teacherName].forEach(p => { hypotheticalSchedule[p] = 1; });
+                }
+                
+                // Add the period we are currently testing
+                hypotheticalSchedule[periodToTest] = 1;
+                
+                const newRCP = calculateConsecutivePeriods(hypotheticalSchedule);
+                
+                // Update the UI for this specific radio button's display
+                const rcpElement = document.getElementById(`rcp-${periodToTest}-${teacherName}`);
+                if(rcpElement) {
+                    rcpElement.textContent = newRCP;
+                    rcpElement.classList.toggle('workload-heavy', newRCP >= 5);
+                }
+            });
+        }
+
 
         // --- UI & MODAL LOGIC ---
         function createPeriodResultCard(periodNumber, ideal, department) {
@@ -239,8 +305,26 @@
         }
 
         function createSelectionList(title, titleColor, period, teachers) {
-            let listHtml = `<div><h4 class="font-semibold ${titleColor}">${title}</h4><ul class="list-none pl-1 mt-1 text-sm space-y-1">`;
-            listHtml += teachers.map(t => `<li><label class="flex items-center p-1 rounded-md hover:bg-gray-200 cursor-pointer"><input type="radio" name="relief-period-${period}" value="${t.NAME}" data-email="${t.EMAIL}" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300"><span class="ml-2">${t.NAME} <span class="text-gray-500">(${t.dailyLoad} periods)</span></span></label></li>`).join('');
+            let listHtml = `<div><h4 class="font-semibold ${titleColor}">${title}</h4><ul class="list-none pl-1 mt-1 text-sm space-y-2">`;
+            listHtml += teachers.map(t => {
+                const ccpClass = t.CCP >= 5 ? 'workload-heavy' : '';
+                const rcpClass = t.RCP >= 5 ? 'workload-heavy' : '';
+                return `
+                <li>
+                    <label class="flex p-1 rounded-md hover:bg-gray-200 cursor-pointer">
+                        <input type="radio" name="relief-period-${period}" value="${t.NAME}" data-email="${t.EMAIL}" class="mt-1 self-start">
+                        <div class="ml-2">
+                            <span class="font-semibold text-gray-800">${t.NAME}</span>
+                            <div class="text-xs text-gray-600 grid grid-cols-2 gap-x-2">
+                                <span>CT: <b>${t.CT}</b></span>
+                                <span>RT: <b>${t.RT}</b></span>
+                                <span>CCP: <b class="${ccpClass}">${t.CCP}</b></span>
+                                <span>RCP: <b id="rcp-${period}-${t.NAME}" class="${rcpClass}">${t.RCP}</b></span>
+                            </div>
+                        </div>
+                    </label>
+                </li>`;
+            }).join('');
             listHtml += `</ul></div>`;
             return listHtml;
         }
@@ -248,15 +332,10 @@
         function handleGenerateEmail() {
             const selected = document.querySelectorAll('input[type="radio"]:checked');
             if(selected.length === 0) return alert("Please select at least one teacher for relief duty.");
-            const assignments = {};
-            const emailSet = new Set();
+            const assignments = {}, emailSet = new Set();
             selected.forEach(radio => {
-                const period = radio.name.replace('relief-period-', '');
-                const teacherName = radio.value;
-                const teacherEmail = radio.dataset.email;
-                if (!assignments[teacherName]) {
-                    assignments[teacherName] = { periods: [], email: teacherEmail };
-                }
+                const period = radio.name.replace('relief-period-', ''), teacherName = radio.value, teacherEmail = radio.dataset.email;
+                if (!assignments[teacherName]) assignments[teacherName] = { periods: [], email: teacherEmail };
                 assignments[teacherName].periods.push(period);
                 if(teacherEmail && teacherEmail !== 'undefined') emailSet.add(teacherEmail);
             });
@@ -286,23 +365,10 @@
         function applyUrlParameters() {
             try {
                 const params = new URLSearchParams(window.location.search);
-                const teacher = params.get('teacher');
-                const date = params.get('date');
-                let autoSubmit = false;
-
-                if (teacher) {
-                    document.getElementById('absent-teacher').value = teacher;
-                    autoSubmit = true;
-                }
-                if (date) {
-                    document.getElementById('absence-date').value = date;
-                } else {
-                    autoSubmit = false; // Don't submit if date is missing
-                }
-
-                if (autoSubmit) {
-                    setTimeout(() => handleFormSubmit(), 100);
-                }
+                const teacher = params.get('teacher'), date = params.get('date');
+                if (teacher) document.getElementById('absent-teacher').value = teacher;
+                if (date) document.getElementById('absence-date').value = date;
+                if (teacher && date) setTimeout(() => handleFormSubmit(), 100);
             } catch (e) { console.error("Could not apply URL parameters.", e); }
         }
 
@@ -313,7 +379,7 @@
                 checkboxContainer.innerHTML += `<label class="flex items-center justify-center space-x-2 p-2 rounded-md hover:bg-gray-100 cursor-pointer"><input type="checkbox" value="${i}" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"><span class="text-sm">${i}</span></label>`;
             }
 
-            document.getElementById('relief-form').addEventListener('submit', (event) => handleFormSubmit(event));
+            document.getElementById('relief-form').addEventListener('submit', handleFormSubmit);
             document.getElementById('generate-email-btn').addEventListener('click', handleGenerateEmail);
             document.getElementById('close-modal-btn').addEventListener('click', () => { document.getElementById('email-modal').classList.add('hidden'); });
             
@@ -322,8 +388,10 @@
                     document.getElementById('periods-checkboxes').style.display = (e.target.value === 'specific-periods') ? 'block' : 'none';
                 });
             });
+
+            // NEW: Add event listener to the entire results grid for dynamic updates.
+            document.getElementById('results-grid').addEventListener('change', updateAllRCPs);
             
-            // --- MERGED & UPDATED: Load data from cloud sources ---
             const timetableUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/BTYTT_2025Sem2.csv';
             const calendarUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/CalendarReference.csv';
             const statusDiv = document.getElementById('data-status');
@@ -336,13 +404,11 @@
                 processCalendarData(calendarCsv);
                 processTimetableData(timetableCsv);
 
-                statusDiv.innerHTML = `<p>Timetable and calendar data loaded successfully from cloud source.</p>`;
+                statusDiv.innerHTML = `<p>Timetable and calendar data loaded successfully.</p>`;
                 statusDiv.classList.replace('bg-yellow-100', 'bg-green-100');
                 statusDiv.classList.replace('text-yellow-800', 'text-green-800');
 
-                const findBtn = document.getElementById('find-btn');
-                const teacherSelect = document.getElementById('absent-teacher');
-
+                const findBtn = document.getElementById('find-btn'), teacherSelect = document.getElementById('absent-teacher');
                 findBtn.disabled = false;
                 findBtn.classList.replace('bg-gray-400', 'bg-blue-600');
                 teacherSelect.disabled = false;
@@ -352,7 +418,7 @@
             })
             .catch(error => {
                 console.error('Failed to fetch data:', error);
-                statusDiv.innerHTML = `<p><b>Error:</b> Could not load data from the cloud. ${error}</p>`;
+                statusDiv.innerHTML = `<p><b>Error:</b> Could not load data. ${error}</p>`;
                 statusDiv.classList.replace('bg-yellow-100', 'bg-red-100');
                 statusDiv.classList.replace('text-yellow-800', 'text-red-800');
             });
