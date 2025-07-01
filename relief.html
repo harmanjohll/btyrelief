@@ -91,7 +91,7 @@
     <script>
         let teacherTimetableData = [];
         let calendarData = new Map();
-        let currentDayInfo = {}; // To store weekType and dayShortName for dynamic calcs
+        let currentDayInfo = {}; 
 
         // --- DATA FETCHING AND PARSING ---
         function parseCsv(csvText) {
@@ -172,8 +172,9 @@
         function calculateConsecutivePeriods(schedule) {
             let maxConsecutive = 0, currentConsecutive = 0;
             for (const period of schedule) {
-                if (period === 1) currentConsecutive++;
-                else {
+                if (period === 1) {
+                    currentConsecutive++;
+                } else {
                     maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
                     currentConsecutive = 0;
                 }
@@ -196,7 +197,7 @@
             const { weekType, dayShortName } = getWeekInfo(absenceDate);
             if (!weekType) return alert(`Week type for ${absenceDate.toUTCString().slice(0, 16)} not found.`);
             
-            currentDayInfo = { weekType, dayShortName }; // Store for dynamic updates
+            currentDayInfo = { weekType, dayShortName };
 
             const reliefType = document.querySelector('input[name="relief-type"]:checked').value;
             let potentialPeriods = (reliefType === 'all-day') 
@@ -254,41 +255,56 @@
             document.getElementById('initial-message').classList.add('hidden');
         }
 
-        // --- DYNAMIC RECALCULATION ON SELECTION ---
-        function updateAllRCPs() {
-            const selections = {}; // { teacherName: [selected_periods] }
+        // --- DYNAMIC RECALCULATION ON SELECTION (CORRECTED LOGIC) ---
+        function updateDynamicMetrics() {
+            const selections = {};
             document.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
                 const name = radio.value;
-                const period = parseInt(radio.name.replace('relief-period-', ''));
                 if (!selections[name]) selections[name] = [];
-                selections[name].push(period);
+                selections[name].push(parseInt(radio.name.replace('relief-period-', '')));
             });
 
-            document.querySelectorAll('#results-grid input[type="radio"]').forEach(radio => {
-                const teacherName = radio.value;
-                const periodToTest = parseInt(radio.name.replace('relief-period-', ''));
+            document.querySelectorAll('#results-grid .teacher-option').forEach(option => {
+                const teacherName = option.dataset.teacherName;
+                const periodToTest = parseInt(option.dataset.period);
                 const teacher = teacherTimetableData.find(t => t.NAME === teacherName);
                 if (!teacher) return;
-                
+
                 const baseSchedule = getDailySchedule(teacher, currentDayInfo.weekType, currentDayInfo.dayShortName);
-                const hypotheticalSchedule = [...baseSchedule];
                 
-                // Add currently selected periods for this teacher
+                // Build the "new current" schedule based on ALL selections for this teacher
+                const newCurrentSchedule = [...baseSchedule];
                 if (selections[teacherName]) {
-                    selections[teacherName].forEach(p => { hypotheticalSchedule[p] = 1; });
+                    selections[teacherName].forEach(p => {
+                        newCurrentSchedule[p] = 1;
+                    });
                 }
                 
-                // Add the period we are currently testing
-                hypotheticalSchedule[periodToTest] = 1;
-                
-                const newRCP = calculateConsecutivePeriods(hypotheticalSchedule);
-                
-                // Update the UI for this specific radio button's display
-                const rcpElement = document.getElementById(`rcp-${periodToTest}-${teacherName}`);
-                if(rcpElement) {
-                    rcpElement.textContent = newRCP;
-                    rcpElement.classList.toggle('workload-heavy', newRCP >= 5);
+                // The "resulting" schedule always includes the period being tested
+                const resultingSchedule = [...newCurrentSchedule];
+                if (!resultingSchedule[periodToTest]) { // Ensure it's set if not already selected
+                    resultingSchedule[periodToTest] = 1;
                 }
+
+                const newCT = newCurrentSchedule.reduce((a, b) => a + b, 0);
+                const newCCP = calculateConsecutivePeriods(newCurrentSchedule);
+                const newRT = resultingSchedule.reduce((a, b) => a + b, 0);
+                const newRCP = calculateConsecutivePeriods(resultingSchedule);
+
+                // Update UI elements for this specific option
+                const ctElement = option.querySelector('.metric-ct');
+                ctElement.textContent = newCT;
+
+                const ccpElement = option.querySelector('.metric-ccp');
+                ccpElement.textContent = newCCP;
+                ccpElement.classList.toggle('workload-heavy', newCCP >= 5);
+                
+                const rtElement = option.querySelector('.metric-rt');
+                rtElement.textContent = newRT;
+
+                const rcpElement = option.querySelector('.metric-rcp');
+                rcpElement.textContent = newRCP;
+                rcpElement.classList.toggle('workload-heavy', newRCP >= 5);
             });
         }
 
@@ -303,23 +319,21 @@
             content += `</div></div>`;
             return content;
         }
-
+        
         function createSelectionList(title, titleColor, period, teachers) {
             let listHtml = `<div><h4 class="font-semibold ${titleColor}">${title}</h4><ul class="list-none pl-1 mt-1 text-sm space-y-2">`;
             listHtml += teachers.map(t => {
-                const ccpClass = t.CCP >= 5 ? 'workload-heavy' : '';
-                const rcpClass = t.RCP >= 5 ? 'workload-heavy' : '';
                 return `
-                <li>
+                <li class="teacher-option" data-teacher-name="${t.NAME}" data-period="${period}">
                     <label class="flex p-1 rounded-md hover:bg-gray-200 cursor-pointer">
                         <input type="radio" name="relief-period-${period}" value="${t.NAME}" data-email="${t.EMAIL}" class="mt-1 self-start">
                         <div class="ml-2">
                             <span class="font-semibold text-gray-800">${t.NAME}</span>
                             <div class="text-xs text-gray-600 grid grid-cols-2 gap-x-2">
-                                <span>CT: <b>${t.CT}</b></span>
-                                <span>RT: <b>${t.RT}</b></span>
-                                <span>CCP: <b class="${ccpClass}">${t.CCP}</b></span>
-                                <span>RCP: <b id="rcp-${period}-${t.NAME}" class="${rcpClass}">${t.RCP}</b></span>
+                                <span>CT: <b class="metric-ct">${t.CT}</b></span>
+                                <span>RT: <b class="metric-rt">${t.RT}</b></span>
+                                <span>CCP: <b class="metric-ccp ${t.CCP >= 5 ? 'workload-heavy' : ''}">${t.CCP}</b></span>
+                                <span>RCP: <b class="metric-rcp ${t.RCP >= 5 ? 'workload-heavy' : ''}">${t.RCP}</b></span>
                             </div>
                         </div>
                     </label>
@@ -389,8 +403,21 @@
                 });
             });
 
-            // NEW: Add event listener to the entire results grid for dynamic updates.
-            document.getElementById('results-grid').addEventListener('change', updateAllRCPs);
+            // NEW: Logic for deselecting radio buttons
+            let lastChecked = null;
+            document.getElementById('results-grid').addEventListener('mousedown', e => {
+                if (e.target.type === 'radio') {
+                    lastChecked = e.target.checked;
+                }
+            });
+            document.getElementById('results-grid').addEventListener('click', e => {
+                if (e.target.type === 'radio' && lastChecked) {
+                    e.target.checked = false;
+                }
+                if (e.target.type === 'radio') {
+                    updateDynamicMetrics();
+                }
+            });
             
             const timetableUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/BTYTT_2025Sem2.csv';
             const calendarUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/CalendarReference.csv';
