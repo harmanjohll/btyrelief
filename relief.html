@@ -15,6 +15,7 @@
         .modal { @apply fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50; }
         .modal-content { @apply relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white; }
         .workload-heavy { @apply text-red-600 font-bold; }
+        .workload-changed { @apply text-orange-600; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -58,14 +59,7 @@
 
                 <div id="results-area">
                     <div id="results-section" class="hidden">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-2">2. Select Relief Teachers</h2>
-                        <div class="p-3 mb-4 bg-gray-100 rounded-lg text-xs text-gray-600">
-                            <b>Legend:</b> 
-                            <span class="ml-2"><b>CT:</b> Current Total Periods</span>
-                            <span class="ml-2"><b>CCP:</b> Current Consecutive Periods</span>
-                            <span class="ml-2"><b>RT:</b> Resulting Total Periods</span>
-                            <span class="ml-2"><b>RCP:</b> Resulting Consecutive Periods</span>
-                        </div>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4">2. Select Relief Teachers</h2>
                         <div id="results-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
                         <div class="text-center mt-8"><button id="generate-email-btn" class="bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700">Generate Notification</button></div>
                     </div>
@@ -223,7 +217,7 @@
             resultsGrid.innerHTML = ''; 
 
             for (const period of requiredPeriods) {
-                let idealMatches = [], departmentMatches = [];
+                let idealMatches = [], departmentMatches = [], generalMatches = [];
                 teacherTimetableData.forEach(candidate => {
                     if (candidate.NAME === absentTeacher.NAME) return;
                     
@@ -235,27 +229,26 @@
                     if (CT >= 8) return; 
                     
                     const CCP = calculateConsecutivePeriods(dailySchedule);
-                    const newDailySchedule = [...dailySchedule];
-                    newDailySchedule[period] = 1;
-                    const RCP = calculateConsecutivePeriods(newDailySchedule);
                     
-                    const candidateWithMetrics = { ...candidate, CT, CCP, RT: CT + 1, RCP };
+                    const candidateWithMetrics = { ...candidate, CT, CCP };
 
                     if (candidate.SUBJECT === absentTeacher.SUBJECT) idealMatches.push(candidateWithMetrics);
                     else if (candidate.DEPARTMENT === absentTeacher.DEPARTMENT) departmentMatches.push(candidateWithMetrics);
+                    else if (candidate.DEPARTMENT === 'GENERAL') generalMatches.push(candidateWithMetrics);
                 });
 
-                const sortByWorkload = (a, b) => a.RCP !== b.RCP ? a.RCP - b.RCP : a.CT - b.CT;
+                const sortByWorkload = (a, b) => a.CCP !== b.CCP ? a.CCP - b.CCP : a.CT - b.CT;
                 idealMatches.sort(sortByWorkload);
                 departmentMatches.sort(sortByWorkload);
+                generalMatches.sort(sortByWorkload);
                 
-                resultsGrid.innerHTML += createPeriodResultCard(period, idealMatches, departmentMatches);
+                resultsGrid.innerHTML += createPeriodResultCard(period, idealMatches, departmentMatches, generalMatches);
             }
             document.getElementById('results-section').classList.remove('hidden');
             document.getElementById('initial-message').classList.add('hidden');
         }
 
-        // --- DYNAMIC RECALCULATION ON SELECTION (CORRECTED LOGIC) ---
+        // --- DYNAMIC RECALCULATION ON SELECTION ---
         function updateDynamicMetrics() {
             const selections = {};
             document.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
@@ -266,55 +259,40 @@
 
             document.querySelectorAll('#results-grid .teacher-option').forEach(option => {
                 const teacherName = option.dataset.teacherName;
-                const periodToTest = parseInt(option.dataset.period);
                 const teacher = teacherTimetableData.find(t => t.NAME === teacherName);
                 if (!teacher) return;
 
                 const baseSchedule = getDailySchedule(teacher, currentDayInfo.weekType, currentDayInfo.dayShortName);
                 
-                // Build the "new current" schedule based on ALL selections for this teacher
-                const newCurrentSchedule = [...baseSchedule];
+                // Build the current schedule based on selections
+                const currentSchedule = [...baseSchedule];
                 if (selections[teacherName]) {
-                    selections[teacherName].forEach(p => {
-                        newCurrentSchedule[p] = 1;
-                    });
+                    selections[teacherName].forEach(p => { currentSchedule[p] = 1; });
                 }
                 
-                // The "resulting" schedule always includes the period being tested
-                const resultingSchedule = [...newCurrentSchedule];
-                if (!resultingSchedule[periodToTest]) { // Ensure it's set if not already selected
-                    resultingSchedule[periodToTest] = 1;
-                }
-
-                const newCT = newCurrentSchedule.reduce((a, b) => a + b, 0);
-                const newCCP = calculateConsecutivePeriods(newCurrentSchedule);
-                const newRT = resultingSchedule.reduce((a, b) => a + b, 0);
-                const newRCP = calculateConsecutivePeriods(resultingSchedule);
+                const newTotal = currentSchedule.reduce((a, b) => a + b, 0);
+                const newConsecutive = calculateConsecutivePeriods(currentSchedule);
 
                 // Update UI elements for this specific option
-                const ctElement = option.querySelector('.metric-ct');
-                ctElement.textContent = newCT;
-
-                const ccpElement = option.querySelector('.metric-ccp');
-                ccpElement.textContent = newCCP;
-                ccpElement.classList.toggle('workload-heavy', newCCP >= 5);
+                const totalElement = option.querySelector('.metric-total');
+                totalElement.textContent = newTotal;
+                totalElement.classList.toggle('workload-changed', !!selections[teacherName]);
                 
-                const rtElement = option.querySelector('.metric-rt');
-                rtElement.textContent = newRT;
-
-                const rcpElement = option.querySelector('.metric-rcp');
-                rcpElement.textContent = newRCP;
-                rcpElement.classList.toggle('workload-heavy', newRCP >= 5);
+                const consecutiveElement = option.querySelector('.metric-consecutive');
+                consecutiveElement.textContent = newConsecutive;
+                consecutiveElement.classList.toggle('workload-changed', !!selections[teacherName]);
+                consecutiveElement.classList.toggle('workload-heavy', newConsecutive >= 5);
             });
         }
 
 
         // --- UI & MODAL LOGIC ---
-        function createPeriodResultCard(periodNumber, ideal, department) {
+        function createPeriodResultCard(periodNumber, ideal, department, general) {
             let content = `<div class="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-col"><h3 class="text-lg font-bold text-gray-800">Period ${periodNumber}</h3><div class="mt-3 space-y-3 flex-grow">`;
-            if (ideal.length > 0 || department.length > 0) {
+            if (ideal.length > 0 || department.length > 0 || general.length > 0) {
                 if (ideal.length > 0) content += createSelectionList('Ideal Match', 'text-green-700', periodNumber, ideal);
                 if (department.length > 0) content += createSelectionList('Department Match', 'text-yellow-700', periodNumber, department);
+                if (general.length > 0) content += createSelectionList('General Relief', 'text-blue-700', periodNumber, general);
             } else { content += `<p class="text-red-600 italic">No suitable teachers found.</p>`; }
             content += `</div></div>`;
             return content;
@@ -329,11 +307,9 @@
                         <input type="radio" name="relief-period-${period}" value="${t.NAME}" data-email="${t.EMAIL}" class="mt-1 self-start">
                         <div class="ml-2">
                             <span class="font-semibold text-gray-800">${t.NAME}</span>
-                            <div class="text-xs text-gray-600 grid grid-cols-2 gap-x-2">
-                                <span>CT: <b class="metric-ct">${t.CT}</b></span>
-                                <span>RT: <b class="metric-rt">${t.RT}</b></span>
-                                <span>CCP: <b class="metric-ccp ${t.CCP >= 5 ? 'workload-heavy' : ''}">${t.CCP}</b></span>
-                                <span>RCP: <b class="metric-rcp ${t.RCP >= 5 ? 'workload-heavy' : ''}">${t.RCP}</b></span>
+                            <div class="text-xs text-gray-600 grid grid-cols-1">
+                                <span>Total: <b class="metric-total">${t.CT}</b></span>
+                                <span>Consecutive: <b class="metric-consecutive ${t.CCP >= 5 ? 'workload-heavy' : ''}">${t.CCP}</b></span>
                             </div>
                         </div>
                     </label>
@@ -403,7 +379,7 @@
                 });
             });
 
-            // NEW: Logic for deselecting radio buttons
+            // Logic for deselecting radio buttons
             let lastChecked = null;
             document.getElementById('results-grid').addEventListener('mousedown', e => {
                 if (e.target.type === 'radio') {
