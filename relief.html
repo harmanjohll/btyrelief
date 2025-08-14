@@ -12,6 +12,8 @@
         body { font-family: 'Inter', sans-serif; }
         label { @apply block text-sm font-medium text-gray-700 mb-1; }
         input, select { @apply mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm; }
+        .modal { @apply fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50; }
+        .modal-content { @apply relative mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white; }
         .workload-heavy { @apply text-red-600 font-bold; }
         .workload-changed { @apply text-orange-600; }
     </style>
@@ -23,7 +25,7 @@
             <div class="p-8">
                 <header class="mb-8">
                     <h1 class="text-3xl font-bold text-gray-900">BTY Relief Teacher Finder</h1>
-                    <p class="mt-2 text-gray-600">Find and select the most suitable relief teachers based on workload.</p>
+                    <p class="mt-2 text-gray-600">Find, select, and generate notifications for relief teachers.</p>
                 </header>
                 
                 <div id="data-status" class="mb-8 p-4 bg-yellow-100 text-yellow-800 rounded-lg text-center">
@@ -36,6 +38,8 @@
                         <div>
                             <label for="absent-teacher">Absent Teacher</label>
                             <select id="absent-teacher" name="absent-teacher" required disabled class="bg-gray-200"></select>
+                            <!-- NEW: Integrated Live Status Display -->
+                            <p id="absent-teacher-live-status" class="text-sm text-gray-600 mt-2 h-5"></p>
                         </div>
                         <div>
                             <label for="absence-date">Date of Absence</label>
@@ -59,6 +63,7 @@
                     <div id="results-section" class="hidden">
                         <h2 class="text-2xl font-bold text-gray-800 mb-4">2. Select Relief Teachers</h2>
                         <div id="results-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+                        <div class="text-center mt-8"><button id="generate-email-btn" class="bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700">Generate Notification</button></div>
                     </div>
                     <div id="initial-message" class="text-center p-4 bg-gray-100 rounded-lg"><p class="text-gray-500">Results will be displayed here after a search.</p></div>
                 </div>
@@ -66,10 +71,28 @@
         </div>
     </div>
     
+    <div id="email-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Generated Email Notification</h3>
+            <div><label class="font-semibold">To:</label><p id="email-to" class="text-sm p-2 bg-gray-100 rounded break-words"></p></div>
+            <div class="mt-2"><label class="font-semibold">Subject:</label><p id="email-subject" class="text-sm p-2 bg-gray-100 rounded"></p></div>
+            <div class="mt-2"><label class="font-semibold">Body:</label><textarea id="email-body" rows="10" class="w-full text-sm p-2 bg-gray-100 rounded"></textarea></div>
+            <div class="mt-6 flex justify-end items-center space-x-4">
+                <button id="close-modal-btn" class="text-gray-600 hover:text-gray-800">Close</button>
+                <a id="mailto-link" href="#" target="_blank" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700">Open in Email Client</a>
+            </div>
+        </div>
+    </div>
+
     <script>
         let teacherTimetableData = [];
         let calendarData = new Map();
         let currentDayInfo = {}; 
+
+        const periodStartTimes = [
+            "7:30", "7:55", "8:30", "9:05", "9:40", "10:15", 
+            "10:50", "11:25", "12:00", "12:35", "1:10", "1:45"
+        ];
 
         // --- DATA FETCHING AND PARSING ---
         function parseCsv(csvText) {
@@ -92,7 +115,7 @@
                 const teacherObj = {};
                 for (const header in row) {
                     const upperHeader = header.toUpperCase();
-                    if (['NAME', 'DEPARTMENT', 'SUBJECT', 'EMAIL'].includes(upperHeader)) {
+                    if (['NAME', 'DEPARTMENT', 'SUBJECT', 'SUBJECT_2', 'EMAIL'].includes(upperHeader)) {
                         teacherObj[upperHeader] = row[header];
                     } else {
                         const key = header.toLowerCase().replace(/[^a-z0-9]/gi, '');
@@ -101,10 +124,11 @@
                 }
                 return teacherObj;
             });
-            const select = document.getElementById('absent-teacher');
-            select.innerHTML = '';
+            const absentTeacherSelect = document.getElementById('absent-teacher');
+            absentTeacherSelect.innerHTML = '<option value="">-- Select a teacher --</option>';
             teacherTimetableData.forEach(t => {
-                select.innerHTML += `<option value="${t.NAME}">${t.NAME} (${t.DEPARTMENT})</option>`;
+                const optionHtml = `<option value="${t.NAME}">${t.NAME} (${t.DEPARTMENT})</option>`;
+                absentTeacherSelect.innerHTML += optionHtml;
             });
         }
 
@@ -133,9 +157,12 @@
             const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
             const mondayDate = new Date(targetDate.getTime());
             mondayDate.setUTCDate(targetDate.getUTCDate() - daysToSubtract);
+            // *** FIX: Zero out the time to ensure a correct lookup against the calendar map ***
+            mondayDate.setUTCHours(0, 0, 0, 0); 
+            
             const weekType = calendarData.get(mondayDate.getTime());
             const dayShortName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][targetDate.getUTCDay()];
-            return { weekType, dayShortName };
+            return { weekType, dayShortName, mondayDate }; // Return mondayDate for better error reporting
         }
 
         function getDailySchedule(teacher, weekType, day) {
@@ -178,16 +205,19 @@
         function handleFormSubmit(event) {
             if (event) event.preventDefault();
             const absentTeacherName = document.getElementById('absent-teacher').value;
+            if (!absentTeacherName) return alert("Please select an absent teacher.");
             const absentTeacher = teacherTimetableData.find(t => t.NAME === absentTeacherName);
-            if (!absentTeacher) return alert("Absent teacher not found.");
             
             const absenceDateStr = document.getElementById('absence-date').value;
             if (!absenceDateStr) return alert("Please select a date.");
             const dateParts = absenceDateStr.split('-').map(Number);
             const absenceDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
 
-            const { weekType, dayShortName } = getWeekInfo(absenceDate);
-            if (!weekType) return alert(`Week type for ${absenceDate.toUTCString().slice(0, 16)} not found.`);
+            const { weekType, dayShortName, mondayDate } = getWeekInfo(absenceDate);
+            if (!weekType) {
+                const formattedMonday = mondayDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-');
+                return alert(`Error: The week starting ${formattedMonday} is not in the CalendarReference.csv. Please update the calendar file.`);
+            }
             
             currentDayInfo = { weekType, dayShortName };
 
@@ -217,7 +247,7 @@
             for (const period of requiredPeriods) {
                 let idealMatches = [], departmentMatches = [];
                 teacherTimetableData.forEach(candidate => {
-                    if (candidate.NAME === absentTeacher.NAME || candidate.DEPARTMENT === 'GENERAL') return; 
+                    if (candidate.NAME === absentTeacher.NAME || candidate.DEPARTMENT === 'GENERAL') return;
                     
                     const periodKey = `${currentDayInfo.weekType}${currentDayInfo.dayShortName}${period}`.toLowerCase().replace(/[^a-z0-9]/gi, '');
                     if (candidate[periodKey] === 1) return;
@@ -231,8 +261,13 @@
                     
                     const candidateWithMetrics = { ...candidate, CT, CCP, weeklyBase };
 
-                    if (candidate.SUBJECT === absentTeacher.SUBJECT) idealMatches.push(candidateWithMetrics);
-                    else if (candidate.DEPARTMENT === absentTeacher.DEPARTMENT) departmentMatches.push(candidateWithMetrics);
+                    const isIdealMatch = (candidate.SUBJECT === absentTeacher.SUBJECT) || (candidate.SUBJECT_2 && candidate.SUBJECT_2 === absentTeacher.SUBJECT);
+
+                    if (isIdealMatch) {
+                        idealMatches.push(candidateWithMetrics);
+                    } else if (candidate.DEPARTMENT === absentTeacher.DEPARTMENT) {
+                        departmentMatches.push(candidateWithMetrics);
+                    }
                 });
 
                 const sortByWorkload = (a, b) => a.CCP !== b.CCP ? a.CCP - b.CCP : a.CT - b.CT;
@@ -284,7 +319,8 @@
 
         // --- UI & MODAL LOGIC ---
         function createPeriodResultCard(periodNumber, ideal, department) {
-            let content = `<div class="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-col"><h3 class="text-lg font-bold text-gray-800">Period ${periodNumber}</h3><div class="mt-3 space-y-3 flex-grow">`;
+            const startTime = periodStartTimes[periodNumber] || '';
+            let content = `<div class="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-col"><h3 class="text-lg font-bold text-gray-800">Period ${periodNumber} <span class="text-sm font-normal text-gray-500">(${startTime})</span></h3><div class="mt-3 space-y-3 flex-grow">`;
             if (ideal.length > 0 || department.length > 0) {
                 if (ideal.length > 0) content += createSelectionList('Ideal Match', 'text-green-700', periodNumber, ideal);
                 if (department.length > 0) content += createSelectionList('Department Match', 'text-yellow-700', periodNumber, department);
@@ -315,6 +351,39 @@
             return listHtml;
         }
         
+        function handleGenerateEmail() {
+            const selected = document.querySelectorAll('input[type="radio"]:checked');
+            if(selected.length === 0) return alert("Please select at least one teacher for relief duty.");
+            const assignments = {}, emailSet = new Set();
+            selected.forEach(radio => {
+                const period = radio.name.replace('relief-period-', ''), teacherName = radio.value, teacherEmail = radio.dataset.email;
+                if (!assignments[teacherName]) assignments[teacherName] = { periods: [], email: teacherEmail };
+                assignments[teacherName].periods.push(period);
+                if(teacherEmail && teacherEmail !== 'undefined') emailSet.add(teacherEmail);
+            });
+
+            const absentTeacher = teacherTimetableData.find(t => t.NAME === document.getElementById('absent-teacher').value);
+            const absenceDateStr = document.getElementById('absence-date').value;
+            const dateParts = absenceDateStr.split('-').map(Number);
+            const absenceDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+            const { weekType, dayShortName } = getWeekInfo(absenceDate);
+            const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            
+            const to = Array.from(emailSet).join(',');
+            const subject = `Relief Duty Assignment for ${absentTeacher.NAME} - ${weekType} Week, ${dayShortName}`;
+            let body = `Dear Colleagues,\n\nPlease help to cover the following period(s) for ${absentTeacher.NAME}, who is away on ${absenceDate.toUTCString().slice(0, 16)}.\n\nRelief Assignments:\n`;
+            for (const name in assignments) {
+                body += `\n- ${name}:\n  Period(s): ${assignments[name].periods.sort((a,b) => a-b).join(', ')}\n`;
+            }
+            body += `\nThank you for your assistance.\n\n\n(This email was generated on ${today} by the BTY Relief Finder.)`;
+            
+            document.getElementById('email-to').textContent = to || "No valid emails found.";
+            document.getElementById('email-subject').textContent = subject;
+            document.getElementById('email-body').value = body;
+            document.getElementById('mailto-link').href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            document.getElementById('email-modal').classList.remove('hidden');
+        }
+        
         function applyUrlParameters() {
             try {
                 const params = new URLSearchParams(window.location.search);
@@ -325,14 +394,80 @@
             } catch (e) { console.error("Could not apply URL parameters.", e); }
         }
 
+        // --- Live Status Feature Logic ---
+        function checkTeacherLiveStatus() {
+            const teacherName = document.getElementById('absent-teacher').value;
+            const resultEl = document.getElementById('absent-teacher-live-status');
+            if (!teacherName) {
+                resultEl.innerHTML = '';
+                return;
+            }
+
+            const teacher = teacherTimetableData.find(t => t.NAME === teacherName);
+            const now = new Date();
+            const { weekType, mondayDate } = getWeekInfo(now);
+
+            if (!weekType) {
+                const formattedMonday = mondayDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-');
+                resultEl.innerHTML = `<span class="text-red-600">Error: Week of ${formattedMonday} not in calendar.</span>`;
+                return;
+            }
+
+            const todaySchedule = getDailySchedule(teacher, weekType, getWeekInfo(now).dayShortName);
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+            let currentPeriod = -1;
+            let nextPeriod = -1;
+            let nextPeriodTime = null;
+
+            for (let i = 0; i < periodStartTimes.length; i++) {
+                const timeParts = periodStartTimes[i].split(':');
+                let hour = parseInt(timeParts[0]);
+                if (i >= 10 && hour < 7) { 
+                    hour += 12;
+                }
+                const periodStartMinutes = hour * 60 + parseInt(timeParts[1]);
+                
+                if (nowMinutes >= periodStartMinutes) {
+                    currentPeriod = i;
+                }
+                
+                if (todaySchedule[i] === 1 && nowMinutes < periodStartMinutes) {
+                    if (nextPeriod === -1) {
+                        nextPeriod = i;
+                        nextPeriodTime = periodStartMinutes;
+                    }
+                }
+            }
+
+            if (currentPeriod === -1 || nowMinutes > (13*60+45)) {
+                resultEl.innerHTML = `<i>Outside of school hours.</i>`;
+                return;
+            }
+
+            if (todaySchedule[currentPeriod] === 1) {
+                resultEl.innerHTML = `<span class="text-red-600 font-semibold">Currently in a lesson</span> (P${currentPeriod})`;
+            } else {
+                if (nextPeriod === -1) {
+                    resultEl.innerHTML = `<span class="text-green-600 font-semibold">Currently free</span> for the day.`;
+                } else {
+                    const minutesUntilNext = nextPeriodTime - nowMinutes;
+                    resultEl.innerHTML = `<span class="text-green-600 font-semibold">Currently free</span> for ${minutesUntilNext} min (until P${nextPeriod}).`;
+                }
+            }
+        }
+
         // --- INITIALIZATION & EVENT LISTENERS ---
         document.addEventListener('DOMContentLoaded', () => {
             const checkboxContainer = document.querySelector('#periods-checkboxes > div');
             for (let i = 0; i < 12; i++) {
-                checkboxContainer.innerHTML += `<label class="flex items-center justify-center space-x-2 p-2 rounded-md hover:bg-gray-100 cursor-pointer"><input type="checkbox" value="${i}" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"><span class="text-sm">${i}</span></label>`;
+                const startTime = periodStartTimes[i] || '';
+                checkboxContainer.innerHTML += `<label class="flex flex-col items-center justify-center space-y-1 p-1 rounded-md hover:bg-gray-100 cursor-pointer"><input type="checkbox" value="${i}" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded"><span class="text-xs font-bold">P${i}</span><span class="text-xxs">${startTime}</span></label>`;
             }
 
             document.getElementById('relief-form').addEventListener('submit', handleFormSubmit);
+            document.getElementById('generate-email-btn').addEventListener('click', handleGenerateEmail);
+            document.getElementById('close-modal-btn').addEventListener('click', () => { document.getElementById('email-modal').classList.add('hidden'); });
             
             document.querySelectorAll('input[name="relief-type"]').forEach(radio => {
                 radio.addEventListener('change', e => {
@@ -340,23 +475,18 @@
                 });
             });
 
-            // Logic for deselecting radio buttons
+            document.getElementById('absent-teacher').addEventListener('change', checkTeacherLiveStatus);
+
             let lastChecked = null;
             document.getElementById('results-grid').addEventListener('mousedown', e => {
-                if (e.target.type === 'radio') {
-                    lastChecked = e.target.checked;
-                }
+                if (e.target.type === 'radio') lastChecked = e.target.checked;
             });
             document.getElementById('results-grid').addEventListener('click', e => {
-                if (e.target.type === 'radio' && lastChecked) {
-                    e.target.checked = false;
-                }
-                if (e.target.type === 'radio') {
-                    updateDynamicMetrics();
-                }
+                if (e.target.type === 'radio' && lastChecked) e.target.checked = false;
+                if (e.target.type === 'radio') updateDynamicMetrics();
             });
             
-            const timetableUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/BTYTT_2025Sem2.csv';
+            const timetableUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/BTYTT_2025Sem2_v2.csv';
             const calendarUrl = 'https://raw.githubusercontent.com/harmanjohll/btyrelief/main/CalendarReference.csv';
             const statusDiv = document.getElementById('data-status');
 
@@ -372,11 +502,13 @@
                 statusDiv.classList.replace('bg-yellow-100', 'bg-green-100');
                 statusDiv.classList.replace('text-yellow-800', 'text-green-800');
 
-                const findBtn = document.getElementById('find-btn'), teacherSelect = document.getElementById('absent-teacher');
+                const findBtn = document.getElementById('find-btn');
+                const absentTeacherSelect = document.getElementById('absent-teacher');
+                
                 findBtn.disabled = false;
                 findBtn.classList.replace('bg-gray-400', 'bg-blue-600');
-                teacherSelect.disabled = false;
-                teacherSelect.classList.remove('bg-gray-200');
+                absentTeacherSelect.disabled = false;
+                absentTeacherSelect.classList.remove('bg-gray-200');
                 
                 applyUrlParameters();
             })
