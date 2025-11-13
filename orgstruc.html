@@ -103,6 +103,11 @@
                         <input type="text" id="designation" name="designation" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                     </div>
                     <div>
+                        <!-- "Level" is now required for the layout logic -->
+                        <label for="level" class="block text-sm font-medium text-gray-700">Level / Tier (Required)</label>
+                        <input type="text" id="level" name="level" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., L1, L2, L3 (Controls vertical position)">
+                    </div>
+                    <div>
                         <label for="department" class="block text-sm font-medium text-gray-700">Department</label>
                         <input type="text" id="department" name="department" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                     </div>
@@ -160,12 +165,13 @@
         let employees = []; // Holds all employee objects
         let currentEditingId = null; // ID of the employee being edited
         let treeCache = []; // Caches the drawn tree structure for click detection
+        let nodeMap = new Map(); // Caches calculated node positions and data
         
         // Drawing constants
         const BOX_WIDTH = 220;
-        const BOX_HEIGHT = 100;
+        const BOX_HEIGHT = 100; // <-- Reduced height back, "Level" is no longer shown
         const H_SPACING = 40;
-        const V_SPACING = 60;
+        const V_SPACING = 80; // <-- Increased vertical spacing between levels
         const FONT_SIZE_NAME = 16;
         const FONT_SIZE_DETAILS = 12;
         const PADDING = 10;
@@ -176,7 +182,8 @@
         let panY = 50;
         let isPanning = false;
         let panStart = { x: 0, y: 0 };
-        let hasPanned = false; // <-- ADDED: Flag to track if a pan occurred
+        let hasPanned = false; // Flag to track if a pan occurred
+        let resizeId; // For debouncing resize observer
 
         // --- CORE LOGIC ---
 
@@ -195,6 +202,7 @@
                     name: 'CEO',
                     designation: 'Chief Executive Officer',
                     department: 'Executive',
+                    level: 'L1', // <-- Added level
                     reportsTo: null // null indicates a root node
                 }];
                 saveToLocalStorage();
@@ -255,99 +263,60 @@
         }
 
         /**
-         * Recursively draws the org chart onto the canvas.
-         * @param {object} node - The current employee node to draw.
-         * @param {number} x - The center X coordinate for this node.
-         * @param {number} y - The top Y coordinate for this node.
+         * NEW: Calculates the Y-position for each level.
          */
-        let drawNode = function(node, x, y) { // <-- Changed to 'let' to allow re-assignment
-            // Calculate coordinates for the box
-            const boxX = x - BOX_WIDTH / 2;
-            const boxY = y;
+        function calculateLevelYMap(employees) {
+            const levels = new Set(employees.map(e => e.level).filter(Boolean)); // Get all unique, non-null levels
+            const sortedLevels = Array.from(levels).sort();
             
-            // Store bounds for click detection (in world coordinates)
-            node.bounds = { x: boxX, y: boxY, width: BOX_WIDTH, height: BOX_HEIGHT };
-            treeCache.push(node); // Add to cache for click detection
+            const levelYMap = new Map();
+            let currentY = 0; // Start Y at 0 in world space
+            sortedLevels.forEach(level => {
+                levelYMap.set(level, currentY);
+                currentY += BOX_HEIGHT + V_SPACING;
+            });
+            return levelYMap;
+        }
 
-            // --- Draw the Box ---
-            ctx.fillStyle = 'white';
-            ctx.strokeStyle = '#94a3b8'; // slate-400
-            ctx.lineWidth = 1.5;
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-            ctx.shadowBlur = 8;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 4;
+        /**
+         * NEW: Recursive function to calculate layout.
+         * This populates nodeMap with x, y, and bounds.
+         * @param {object} node - The current node to process.
+         * @param {number} x - The center X coordinate for this node.
+         * @param {number} hierarchicalY - The Y coordinate if this were a normal tree. Used as a fallback.
+         * @param {Map} levelYMap - The map of level names to Y positions.
+         */
+        function calculateLayout(node, x, hierarchicalY, levelYMap) {
             
-            ctx.beginPath();
-            ctx.roundRect(boxX, boxY, BOX_WIDTH, BOX_HEIGHT, 8); // Use roundRect for rounded corners
-            ctx.fill();
-            ctx.stroke();
+            // The Y-position is determined by the node's level.
+            // Fallback to hierarchical Y if level is missing (though it shouldn't be).
+            const finalY = levelYMap.get(node.level) || hierarchicalY;
+
+            // Store calculated position and bounds
+            node.x = x;
+            node.y = finalY;
+            node.bounds = { 
+                x: x - BOX_WIDTH / 2, 
+                y: finalY, 
+                width: BOX_WIDTH, 
+                height: BOX_HEIGHT 
+            };
             
-            // Reset shadow
-            ctx.shadowColor = 'transparent';
+            nodeMap.set(node.id, node);
+            treeCache.push(node); // For click detection
 
-            // --- Draw the Text ---
-            ctx.fillStyle = '#1e293b'; // slate-800
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-
-            // Name (Bold)
-            ctx.font = `bold ${FONT_SIZE_NAME}px Inter`;
-            ctx.fillText(node.name, x, y + PADDING, BOX_WIDTH - PADDING * 2);
-
-            // Designation (Italic)
-            ctx.fillStyle = '#475569'; // slate-600
-            ctx.font = `italic ${FONT_SIZE_DETAILS}px Inter`;
-            ctx.fillText(node.designation, x, y + PADDING + FONT_SIZE_NAME + 6, BOX_WIDTH - PADDING * 2);
-            
-            // Department
-            ctx.fillStyle = '#475569'; // slate-600
-            ctx.font = `${FONT_SIZE_DETAILS}px Inter`;
-            ctx.fillText(node.department, x, y + PADDING + FONT_SIZE_NAME + FONT_SIZE_DETAILS + 12, BOX_WIDTH - PADDING * 2);
-
-            // --- Draw Children ---
+            // --- Calculate positions for children ---
             if (node.children.length > 0) {
-                // *** FIX ***
-                // This was the source of the "trailing lines" bug.
-                // The width calculation was incorrect. It should just be the result of calculateSubtreeWidth.
                 const totalSubtreeWidth = calculateSubtreeWidth(node);
                 let currentX = x - totalSubtreeWidth / 2;
-                
-                // Draw horizontal connector line
-                const lineY = y + BOX_HEIGHT + V_SPACING / 2;
-                ctx.strokeStyle = '#94a3b8'; // slate-400
-                ctx.lineWidth = 1;
-                
-                const firstChildX = currentX + calculateSubtreeWidth(node.children[0]) / 2;
-                const lastChildX = currentX + totalSubtreeWidth - calculateSubtreeWidth(node.children[node.children.length - 1]) / 2;
-                
-                if(node.children.length > 0) {
-                    // Vertical line down from manager
-                    ctx.beginPath();
-                    ctx.moveTo(x, y + BOX_HEIGHT);
-                    ctx.lineTo(x, lineY);
-                    ctx.stroke();
-
-                    // Horizontal line
-                    ctx.beginPath();
-                    ctx.moveTo(firstChildX, lineY);
-                    ctx.lineTo(lastChildX, lineY);
-                    ctx.stroke();
-                }
 
                 node.children.forEach(child => {
                     const childSubtreeWidth = calculateSubtreeWidth(child);
                     const childX = currentX + childSubtreeWidth / 2;
-                    const childY = y + BOX_HEIGHT + V_SPACING;
 
-                    // Vertical line up to child
-                    ctx.beginPath();
-                    ctx.moveTo(childX, lineY);
-                    ctx.lineTo(childX, childY);
-                    ctx.stroke();
-
-                    // Recurse
-                    drawNode(child, childX, childY); // <-- This will now call the currently assigned function
+                    // Recurse, passing the *next hierarchical Y* as the fallback
+                    const nextHierarchicalY = finalY + BOX_HEIGHT + V_SPACING;
+                    calculateLayout(child, childX, nextHierarchicalY, levelYMap);
                     
                     currentX += childSubtreeWidth + H_SPACING;
                 });
@@ -355,9 +324,93 @@
         }
 
         /**
+         * NEW: Draws a single employee box (no connectors).
+         * @param {object} node - The node (from nodeMap) to draw.
+         * @param {boolean} [noShadow=false] - If true, draws without shadow (for PNG export).
+         */
+        function drawNodeBox(node, noShadow = false) {
+            const x = node.x;
+            const y = node.y;
+            const boxX = node.bounds.x;
+            const boxY = node.bounds.y;
+
+            // --- Draw the Box ---
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = '#94a3b8'; // slate-400
+            ctx.lineWidth = 1.5;
+            
+            if (noShadow) {
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+            } else {
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+                ctx.shadowBlur = 8;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 4;
+            }
+            
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, BOX_WIDTH, BOX_HEIGHT, 8);
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.shadowColor = 'transparent'; // Reset shadow
+
+            // --- Draw the Text ---
+            ctx.fillStyle = '#1e293b'; // slate-800
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+
+            // Name (Bold)
+            let yPos = y + PADDING;
+            ctx.font = `bold ${FONT_SIZE_NAME}px Inter`;
+            ctx.fillText(node.name, x, yPos, BOX_WIDTH - PADDING * 2);
+
+            // Designation (Italic)
+            yPos += FONT_SIZE_NAME + 6;
+            ctx.fillStyle = '#475569'; // slate-600
+            ctx.font = `italic ${FONT_SIZE_DETAILS}px Inter`;
+            ctx.fillText(node.designation, x, yPos, BOX_WIDTH - PADDING * 2);
+            
+            // Department (Level text removed)
+            yPos += FONT_SIZE_DETAILS + 6;
+            ctx.font = `${FONT_SIZE_DETAILS}px Inter`;
+            ctx.fillText(node.department, x, yPos, BOX_WIDTH - PADDING * 2);
+        }
+
+        /**
+         * NEW: Draws an elbow connector between two nodes.
+         */
+        function drawElbowConnector(parent, child) {
+            const p_bottom = { x: parent.x, y: parent.y + BOX_HEIGHT };
+            const c_top = { x: child.x, y: child.y };
+
+            // Don't draw if nodes are missing
+            if (isNaN(p_bottom.x) || isNaN(c_top.x)) return;
+
+            // Midpoint Y for the horizontal line
+            const midY = p_bottom.y + V_SPACING / 2;
+
+            ctx.strokeStyle = '#94a3b8'; // slate-400
+            ctx.lineWidth = 1;
+            
+            ctx.beginPath();
+            ctx.moveTo(p_bottom.x, p_bottom.y);     // Start at parent bottom
+            ctx.lineTo(p_bottom.x, midY);           // Line down
+            ctx.lineTo(c_top.x, midY);              // Line horizontal
+            ctx.lineTo(c_top.x, c_top.y);           // Line to child top
+            ctx.stroke();
+        }
+
+
+        /**
          * Main drawing function. Clears and redraws the entire canvas.
          */
-        function drawChart() {
+        function drawChart(options = {}) {
+            const { forExport = false } = options;
+
             // Clear canvas
             ctx.save();
             ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
@@ -369,21 +422,52 @@
             ctx.translate(panX, panY);
             ctx.scale(scale, scale);
 
+            // --- NEW LAYOUT & DRAWING LOGIC ---
             treeCache = []; // Clear click cache
+            nodeMap.clear(); // Clear position cache
+            
             const roots = buildTree();
+            if (roots.length === 0) {
+                ctx.restore();
+                return; // No nodes to draw
+            }
 
-            // Layout multiple roots side-by-side
+            // 1. Calculate Y positions for each level
+            const levelYMap = calculateLevelYMap(employees);
+
+            // 2. Calculate horizontal layout
             let totalWidth = 0;
             const rootWidths = roots.map(root => calculateSubtreeWidth(root));
             totalWidth = rootWidths.reduce((acc, w) => acc + w, 0) + Math.max(0, roots.length - 1) * H_SPACING;
 
             let currentX = -totalWidth / 2;
+            const startY = 0; // Hierarchical Y starts at 0
 
+            // 3. Recurse to calculate all node positions (X and Y)
             roots.forEach((root, index) => {
                 const rootWidth = rootWidths[index];
-                drawNode(root, currentX + rootWidth / 2, 0); // Start Y at 0 in world space
+                calculateLayout(root, currentX + rootWidth / 2, startY, levelYMap);
                 currentX += rootWidth + H_SPACING;
             });
+
+            // 4. Draw connectors (drawn first, so they appear "under" the nodes)
+            ctx.globalCompositeOperation = 'destination-over'; // Draw behind existing content
+            employees.forEach(emp => {
+                if (emp.reportsTo) {
+                    const child = nodeMap.get(emp.id);
+                    const parent = nodeMap.get(emp.reportsTo);
+                    if (child && parent) {
+                        drawElbowConnector(parent, child);
+                    }
+                }
+            });
+            ctx.globalCompositeOperation = 'source-over'; // Reset to default
+
+            // 5. Draw node boxes
+            for (const node of nodeMap.values()) {
+                drawNodeBox(node, forExport); // Pass 'forExport' to disable shadows if needed
+            }
+            // --- END OF NEW LOGIC ---
 
             ctx.restore();
         }
@@ -436,7 +520,7 @@
                 }
                 const option = document.createElement('option');
                 option.value = emp.id;
-                option.textContent = `${emp.name} (${emp.designation})`;
+                option.textContent = `${emp.name} (${emp.level || '?'}) - ${emp.designation}`;
                 reportsToSelect.appendChild(option);
             });
         }
@@ -463,6 +547,7 @@
                     modalTitle.textContent = 'Edit Employee';
                     document.getElementById('name').value = employee.name;
                     document.getElementById('designation').value = employee.designation;
+                    document.getElementById('level').value = employee.level || ''; // <-- ADDED
                     document.getElementById('department').value = employee.department;
                     document.getElementById('reportsTo').value = employee.reportsTo || 'null';
                     
@@ -507,6 +592,7 @@
             const employeeData = {
                 name: formData.get('name'),
                 designation: formData.get('designation'),
+                level: formData.get('level'), // <-- ADDED
                 department: formData.get('department'),
                 reportsTo: formData.get('reportsTo') === 'null' ? null : formData.get('reportsTo'),
             };
@@ -568,6 +654,7 @@
             const { x, y } = getTransformedPoint(e.clientX, e.clientY);
 
             // Find the top-most (last drawn) node that was clicked
+            // treeCache is now populated by calculateLayout
             let clickedEmployee = null;
             for (let i = treeCache.length - 1; i >= 0; i--) {
                 const node = treeCache[i];
@@ -584,34 +671,6 @@
             }
         }
 
-        /**
-         * Resizes the canvas drawing buffer to match its display size.
-         */
-        function resizeCanvas() {
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            
-            // Use Math.round to avoid fractional pixels which can trigger resize loops
-            const newWidth = Math.round(rect.width * dpr);
-            const newHeight = Math.round(rect.height * dpr);
-
-            // *** FIX ***
-            // Only update canvas dimensions and redraw if they have actually changed.
-            // This check prevents the ResizeObserver loop.
-            if (canvas.width !== newWidth || canvas.height !== newHeight) {
-                canvas.width = newWidth;
-                canvas.height = newHeight;
-                
-                ctx.scale(dpr, dpr); // Scale context for high-DPI displays
-                
-                // Re-center view on resize
-                panX = canvas.width / dpr / 2; 
-                panY = 50; 
-                
-                drawChart();
-            }
-        }
-
         // --- INITIALIZATION & EVENT LISTENERS ---
         
         window.addEventListener('DOMContentLoaded', () => {
@@ -621,24 +680,28 @@
                 for (let entry of entries) {
                     if(entry.target.id === 'orgCanvas') {
                         // *** FIX ***
-                        // Use entry.contentRect for stable dimensions inside the callback
-                        // This prevents the "ResizeObserver loop" warning.
-                        const dpr = window.devicePixelRatio || 1;
-                        const newWidth = Math.round(entry.contentRect.width * dpr);
-                        const newHeight = Math.round(entry.contentRect.height * dpr);
-
-                        if (canvas.width !== newWidth || canvas.height !== newHeight) {
-                            canvas.width = newWidth;
-                            canvas.height = newHeight;
-                            
-                            ctx.scale(dpr, dpr); // Scale context for high-DPI displays
-                            
-                            // Re-center view on resize, using the CSS width
-                            panX = entry.contentRect.width / 2; 
-                            panY = 50; 
-                            
-                            drawChart();
+                        // Use rAF to debounce the resize logic.
+                        if (resizeId) {
+                            cancelAnimationFrame(resizeId);
                         }
+                        resizeId = requestAnimationFrame(() => {
+                            const dpr = window.devicePixelRatio || 1;
+                            const newWidth = Math.round(entry.contentRect.width * dpr);
+                            const newHeight = Math.round(entry.contentRect.height * dpr);
+
+                            if (canvas.width !== newWidth || canvas.height !== newHeight) {
+                                canvas.width = newWidth;
+                                canvas.height = newHeight;
+                                
+                                ctx.scale(dpr, dpr); // Scale context for high-DPI displays
+                                
+                                // Re-center view on resize, using the CSS width
+                                panX = entry.contentRect.width / 2; 
+                                panY = 50; 
+                                
+                                drawChart();
+                            }
+                        });
                     }
                 }
             });
@@ -647,108 +710,16 @@
             // Initial load
             loadFromLocalStorage();
             
-            // Call resizeCanvas once manually on load to set the initial size.
-            // The ResizeObserver will not fire on its own until a resize happens,
-            // so this is necessary to render the chart on first load.
-            resizeCanvas(); // Set initial size and draw
+            // The ResizeObserver will fire automatically on load
+            // to set the initial size and draw the chart.
 
             // Toolbar buttons
             addEmployeeBtn.addEventListener('click', () => showModal(true, true));
             
-            // *** IMPROVEMENT ***
-            // Enhanced export function to provide a cleaner image
+            // *** REFACTORED PNG EXPORT ***
             exportPngBtn.addEventListener('click', () => {
-                // Store the original drawNode function
-                const originalDrawNode = drawNode;
-
-                // Create a temporary override for drawNode that *doesn't* draw shadows
-                const drawNodeForExport = (node, x, y) => {
-                    // Calculate coordinates for the box
-                    const boxX = x - BOX_WIDTH / 2;
-                    const boxY = y;
-                    
-                    node.bounds = { x: boxX, y: boxY, width: BOX_WIDTH, height: BOX_HEIGHT };
-                    treeCache.push(node);
-
-                    // --- Draw the Box (NO SHADOW) ---
-                    ctx.fillStyle = 'white';
-                    ctx.strokeStyle = '#94a3b8'; // slate-400
-                    ctx.lineWidth = 1.5;
-                    ctx.shadowColor = 'transparent'; // <-- No shadow
-                    ctx.shadowBlur = 0;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-                    
-                    ctx.beginPath();
-                    ctx.roundRect(boxX, boxY, BOX_WIDTH, BOX_HEIGHT, 8);
-                    ctx.fill();
-                    ctx.stroke();
-                    
-                    ctx.shadowColor = 'transparent';
-
-                    // --- Draw the Text ---
-                    ctx.fillStyle = '#1e293b'; // slate-800
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'top';
-
-                    ctx.font = `bold ${FONT_SIZE_NAME}px Inter`;
-                    ctx.fillText(node.name, x, y + PADDING, BOX_WIDTH - PADDING * 2);
-
-                    ctx.fillStyle = '#475569'; // slate-600
-                    ctx.font = `italic ${FONT_SIZE_DETAILS}px Inter`;
-                    ctx.fillText(node.designation, x, y + PADDING + FONT_SIZE_NAME + 6, BOX_WIDTH - PADDING * 2);
-                    
-                    ctx.fillStyle = '#475569'; // slate-600
-                    ctx.font = `${FONT_SIZE_DETAILS}px Inter`;
-                    ctx.fillText(node.department, x, y + PADDING + FONT_SIZE_NAME + FONT_SIZE_DETAILS + 12, BOX_WIDTH - PADDING * 2);
-
-                    // --- Draw Children ---
-                    if (node.children.length > 0) {
-                        // *** FIX ***
-                        // Applied the same fix here for the export-specific drawing function.
-                        const totalSubtreeWidth = calculateSubtreeWidth(node);
-                        let currentX = x - totalSubtreeWidth / 2;
-                        
-                        const lineY = y + BOX_HEIGHT + V_SPACING / 2;
-                        ctx.strokeStyle = '#94a3b8'; // slate-400
-                        ctx.lineWidth = 1;
-                        
-                        const firstChildX = currentX + calculateSubtreeWidth(node.children[0]) / 2;
-                        const lastChildX = currentX + totalSubtreeWidth - calculateSubtreeWidth(node.children[node.children.length - 1]) / 2;
-                        
-                        if(node.children.length > 0) {
-                            ctx.beginPath();
-                            ctx.moveTo(x, y + BOX_HEIGHT);
-                            ctx.lineTo(x, lineY);
-                            ctx.stroke();
-
-                            ctx.beginPath();
-                            ctx.moveTo(firstChildX, lineY);
-                            ctx.lineTo(lastChildX, lineY);
-                            ctx.stroke();
-                        }
-
-                        node.children.forEach(child => {
-                            const childSubtreeWidth = calculateSubtreeWidth(child);
-                            const childX = currentX + childSubtreeWidth / 2;
-                            const childY = y + BOX_HEIGHT + V_SPACING;
-
-                            ctx.beginPath();
-                            ctx.moveTo(childX, lineY);
-                            ctx.lineTo(childX, childY);
-                            ctx.stroke();
-
-                            // Recurse using the *current* drawNode (which is this export one)
-                            drawNode(child, childX, childY);
-                            
-                            currentX += childSubtreeWidth + H_SPACING;
-                        });
-                    }
-                };
-
-                // Temporarily replace the module-scoped drawNode with the export version
-                drawNode = drawNodeForExport;
-                drawChart(); // Redraw chart using the no-shadow function
+                // Redraw chart using the no-shadow function
+                drawChart({ forExport: true }); 
 
                 // Create download link
                 const link = document.createElement('a');
@@ -756,10 +727,10 @@
                 link.href = canvas.toDataURL('image/png');
                 link.click();
 
-                // Restore the original drawNode function
-                drawNode = originalDrawNode;
-                drawChart(); // Redraw chart with shadows for the live view
+                // Redraw chart with shadows for the live view
+                drawChart({ forExport: false }); 
             });
+
             resetViewBtn.addEventListener('click', () => {
                 scale = 1;
                 panX = canvas.width / (window.devicePixelRatio || 1) / 2;
@@ -781,13 +752,13 @@
                 reader.onload = (event) => {
                     try {
                         const data = JSON.parse(event.target.result);
-                        if (Array.isArray(data) && data.every(item => item.id && item.name)) {
+                        // Check for new required 'level' field
+                        if (Array.isArray(data) && data.every(item => item.id && item.name && item.level)) {
                             employees = data;
                             saveToLocalStorage();
                             drawChart();
                         } else {
-                            // Simple user feedback without alert()
-                            console.error('Invalid JSON format for org chart.');
+                            console.error('Invalid JSON format. Make sure all employees have id, name, and level.');
                         }
                     } catch (err) {
                         console.error('Failed to parse JSON file:', err);
@@ -818,6 +789,7 @@
                     name: 'CEO',
                     designation: 'Chief Executive Officer',
                     department: 'Executive',
+                    level: 'L1', // <-- ADDED
                     reportsTo: null
                 }];
                 saveToLocalStorage();
