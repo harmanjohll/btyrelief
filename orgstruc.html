@@ -73,6 +73,7 @@
             <ul class="list-disc list-inside text-sm text-gray-600">
                 <li><span class="font-medium">Click an employee</span> to edit or delete.</li>
                 <li><span class="font-medium">Click & Drag</span> to pan the chart.</li>
+                <li><span class="font-medium">Ctrl/Cmd + Drag</span> to move an employee tile.</li>
                 <li><span class="font-medium">Mouse Wheel</span> to zoom in/out.</li>
             </ul>
         </div>
@@ -103,13 +104,30 @@
                         <input type="text" id="designation" name="designation" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                     </div>
                     <div>
-                        <!-- "Level" is now required for the layout logic -->
+                        <!-- "Level" is now a dropdown -->
                         <label for="level" class="block text-sm font-medium text-gray-700">Level / Tier (Required)</label>
-                        <input type="text" id="level" name="level" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., L1, L2, L3 (Controls vertical position)">
+                        <select id="level" name="level" required class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Select Level...</option>
+                            <option value="L1">L1</option>
+                            <option value="L2">L2</option>
+                            <option value="L3">L3</option>
+                            <option value="L4">L4</option>
+                            <option value="L5">L5</option>
+                        </select>
                     </div>
                     <div>
+                        <!-- "Department" is now a dropdown -->
                         <label for="department" class="block text-sm font-medium text-gray-700">Department</label>
-                        <input type="text" id="department" name="department" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <select id="department" name="department" class="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Select Department...</option>
+                            <option value="Aesthetics & Technology">Aesthetics & Technology</option>
+                            <option value="English Language & Literature">English Language & Literature</option>
+                            <option value="Humanities">Humanities</option>
+                            <option value="Mathematics">Mathematics</option>
+                            <option value="Mother Tongue Languages">Mother Tongue Languages</option>
+                            <option value="Physical Education">Physical Education</option>
+                            <option value="Science">Science</option>
+                        </select>
                     </div>
                     <div>
                         <label for="reportsTo" class="block text-sm font-medium text-gray-700">Reports To</label>
@@ -169,21 +187,27 @@
         
         // Drawing constants
         const BOX_WIDTH = 220;
-        const BOX_HEIGHT = 100; // <-- Reduced height back, "Level" is no longer shown
+        const BOX_HEIGHT = 100;
         const H_SPACING = 40;
-        const V_SPACING = 80; // <-- Increased vertical spacing between levels
+        const V_SPACING = 80;
         const FONT_SIZE_NAME = 16;
         const FONT_SIZE_DETAILS = 12;
         const PADDING = 10;
         
-        // Viewport state (for pan & zoom)
+        // Viewport state
         let scale = 1;
         let panX = 0;
         let panY = 50;
         let isPanning = false;
         let panStart = { x: 0, y: 0 };
-        let hasPanned = false; // Flag to track if a pan occurred
-        let resizeId; // For debouncing resize observer
+        let hasPanned = false;
+        let resizeId;
+
+        // --- NEW: Drag-and-Drop State ---
+        let isDraggingNode = false;
+        let draggedNode = null;
+        let dragStartMouse = { x: 0, y: 0 };
+
 
         // --- CORE LOGIC ---
 
@@ -202,8 +226,9 @@
                     name: 'CEO',
                     designation: 'Chief Executive Officer',
                     department: 'Executive',
-                    level: 'L1', // <-- Added level
-                    reportsTo: null // null indicates a root node
+                    level: 'L1',
+                    reportsTo: null,
+                    manualX: 0 // <-- NEW: Store manual X offset
                 }];
                 saveToLocalStorage();
             }
@@ -263,11 +288,15 @@
         }
 
         /**
-         * NEW: Calculates the Y-position for each level.
+         * Calculates the Y-position for each level.
          */
         function calculateLevelYMap(employees) {
-            const levels = new Set(employees.map(e => e.level).filter(Boolean)); // Get all unique, non-null levels
-            const sortedLevels = Array.from(levels).sort();
+            const levels = new Set(employees.map(e => e.level).filter(Boolean));
+            
+            // "Natural" sort handles L1, L2, L10 correctly.
+            const sortedLevels = Array.from(levels).sort((a, b) => {
+                return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+            });
             
             const levelYMap = new Map();
             let currentY = 0; // Start Y at 0 in world space
@@ -282,21 +311,26 @@
          * NEW: Recursive function to calculate layout.
          * This populates nodeMap with x, y, and bounds.
          * @param {object} node - The current node to process.
-         * @param {number} x - The center X coordinate for this node.
+         * @param {number} x - The *calculated* center X coordinate for this node.
          * @param {number} hierarchicalY - The Y coordinate if this were a normal tree. Used as a fallback.
          * @param {Map} levelYMap - The map of level names to Y positions.
          */
         function calculateLayout(node, x, hierarchicalY, levelYMap) {
             
+            // --- NEW: Apply manual offset ---
+            // The calculated position 'x' is the automatic layout position.
+            // We add the manually dragged offset to get the final position.
+            const manualOffset = node.manualX || 0;
+            const finalX = x + manualOffset;
+            
             // The Y-position is determined by the node's level.
-            // Fallback to hierarchical Y if level is missing (though it shouldn't be).
             const finalY = levelYMap.get(node.level) || hierarchicalY;
 
             // Store calculated position and bounds
-            node.x = x;
+            node.x = finalX; // Store the *final* X
             node.y = finalY;
             node.bounds = { 
-                x: x - BOX_WIDTH / 2, 
+                x: finalX - BOX_WIDTH / 2, 
                 y: finalY, 
                 width: BOX_WIDTH, 
                 height: BOX_HEIGHT 
@@ -308,13 +342,17 @@
             // --- Calculate positions for children ---
             if (node.children.length > 0) {
                 const totalSubtreeWidth = calculateSubtreeWidth(node);
-                let currentX = x - totalSubtreeWidth / 2;
+                // --- NEW ---
+                // The children's layout block is centered relative to the parent's *finalX* position.
+                // This makes the whole subtree move with the parent.
+                let currentX = finalX - totalSubtreeWidth / 2;
 
                 node.children.forEach(child => {
                     const childSubtreeWidth = calculateSubtreeWidth(child);
                     const childX = currentX + childSubtreeWidth / 2;
 
-                    // Recurse, passing the *next hierarchical Y* as the fallback
+                    // Recurse, passing the *calculated* childX.
+                    // The child's *own* manual offset will be added inside its own call.
                     const nextHierarchicalY = finalY + BOX_HEIGHT + V_SPACING;
                     calculateLayout(child, childX, nextHierarchicalY, levelYMap);
                     
@@ -324,7 +362,7 @@
         }
 
         /**
-         * NEW: Draws a single employee box (no connectors).
+         * Draws a single employee box (no connectors).
          * @param {object} node - The node (from nodeMap) to draw.
          * @param {boolean} [noShadow=false] - If true, draws without shadow (for PNG export).
          */
@@ -342,8 +380,6 @@
             if (noShadow) {
                 ctx.shadowColor = 'transparent';
                 ctx.shadowBlur = 0;
-                ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = 0;
             } else {
                 ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
                 ctx.shadowBlur = 8;
@@ -374,32 +410,36 @@
             ctx.font = `italic ${FONT_SIZE_DETAILS}px Inter`;
             ctx.fillText(node.designation, x, yPos, BOX_WIDTH - PADDING * 2);
             
-            // Department (Level text removed)
+            // Department
             yPos += FONT_SIZE_DETAILS + 6;
             ctx.font = `${FONT_SIZE_DETAILS}px Inter`;
             ctx.fillText(node.department, x, yPos, BOX_WIDTH - PADDING * 2);
         }
 
         /**
-         * NEW: Draws an elbow connector between two nodes.
+         * Draws an elbow connector between two nodes.
          */
         function drawElbowConnector(parent, child) {
             const p_bottom = { x: parent.x, y: parent.y + BOX_HEIGHT };
             const c_top = { x: child.x, y: child.y };
 
-            // Don't draw if nodes are missing
             if (isNaN(p_bottom.x) || isNaN(c_top.x)) return;
-
-            // Midpoint Y for the horizontal line
-            const midY = p_bottom.y + V_SPACING / 2;
+            
+            // Place horizontal line *always* V_SPACING/2 above child, unless parent is lower.
+            let horizontalLineY = c_top.y - V_SPACING / 2;
+            
+            // If parent is *below* this line, move the line down.
+            if (p_bottom.y > horizontalLineY) {
+                horizontalLineY = p_bottom.y + V_SPACING / 2;
+            }
 
             ctx.strokeStyle = '#94a3b8'; // slate-400
             ctx.lineWidth = 1;
             
             ctx.beginPath();
             ctx.moveTo(p_bottom.x, p_bottom.y);     // Start at parent bottom
-            ctx.lineTo(p_bottom.x, midY);           // Line down
-            ctx.lineTo(c_top.x, midY);              // Line horizontal
+            ctx.lineTo(p_bottom.x, horizontalLineY); // Line down/up to horizontal
+            ctx.lineTo(c_top.x, horizontalLineY);   // Line horizontal
             ctx.lineTo(c_top.x, c_top.y);           // Line to child top
             ctx.stroke();
         }
@@ -422,7 +462,7 @@
             ctx.translate(panX, panY);
             ctx.scale(scale, scale);
 
-            // --- NEW LAYOUT & DRAWING LOGIC ---
+            // --- LAYOUT & DRAWING LOGIC ---
             treeCache = []; // Clear click cache
             nodeMap.clear(); // Clear position cache
             
@@ -444,14 +484,14 @@
             const startY = 0; // Hierarchical Y starts at 0
 
             // 3. Recurse to calculate all node positions (X and Y)
+            // This now applies the manualX offsets automatically.
             roots.forEach((root, index) => {
                 const rootWidth = rootWidths[index];
                 calculateLayout(root, currentX + rootWidth / 2, startY, levelYMap);
                 currentX += rootWidth + H_SPACING;
             });
 
-            // 4. Draw connectors (drawn first, so they appear "under" the nodes)
-            ctx.globalCompositeOperation = 'destination-over'; // Draw behind existing content
+            // 4. Draw connectors
             employees.forEach(emp => {
                 if (emp.reportsTo) {
                     const child = nodeMap.get(emp.id);
@@ -461,13 +501,12 @@
                     }
                 }
             });
-            ctx.globalCompositeOperation = 'source-over'; // Reset to default
 
-            // 5. Draw node boxes
+            // 5. Draw node boxes (now drawn *after* lines)
             for (const node of nodeMap.values()) {
-                drawNodeBox(node, forExport); // Pass 'forExport' to disable shadows if needed
+                drawNodeBox(node, forExport);
             }
-            // --- END OF NEW LOGIC ---
+            // --- END OF LOGIC ---
 
             ctx.restore();
         }
@@ -491,6 +530,22 @@
                 });
             }
             return descendants;
+        }
+
+        /**
+         * Finds a node in the treeCache/nodeMap at a given world coordinate.
+         */
+        function getNodeAtPoint(worldX, worldY) {
+            // Find the top-most (last drawn) node that was clicked
+            for (let i = treeCache.length - 1; i >= 0; i--) {
+                const node = treeCache[i];
+                const bounds = node.bounds;
+                if (worldX >= bounds.x && worldX <= bounds.x + bounds.width && 
+                    worldY >= bounds.y && worldY <= bounds.y + bounds.height) {
+                    return node;
+                }
+            }
+            return null;
         }
 
         /**
@@ -547,7 +602,7 @@
                     modalTitle.textContent = 'Edit Employee';
                     document.getElementById('name').value = employee.name;
                     document.getElementById('designation').value = employee.designation;
-                    document.getElementById('level').value = employee.level || ''; // <-- ADDED
+                    document.getElementById('level').value = employee.level || '';
                     document.getElementById('department').value = employee.department;
                     document.getElementById('reportsTo').value = employee.reportsTo || 'null';
                     
@@ -592,7 +647,7 @@
             const employeeData = {
                 name: formData.get('name'),
                 designation: formData.get('designation'),
-                level: formData.get('level'), // <-- ADDED
+                level: formData.get('level'),
                 department: formData.get('department'),
                 reportsTo: formData.get('reportsTo') === 'null' ? null : formData.get('reportsTo'),
             };
@@ -601,13 +656,16 @@
                 // Update existing employee
                 const index = employees.findIndex(e => e.id === currentEditingId);
                 if (index !== -1) {
-                    employees[index] = { ...employees[index], ...employeeData };
+                    // Preserve existing manualX offset
+                    const manualX = employees[index].manualX || 0;
+                    employees[index] = { ...employees[index], ...employeeData, manualX };
                 }
             } else {
                 // Add new employee
                 employees.push({
                     id: crypto.randomUUID(),
-                    ...employeeData
+                    ...employeeData,
+                    manualX: 0 // New employees have 0 offset
                 });
             }
 
@@ -645,25 +703,13 @@
          * Handles canvas click to detect which employee was clicked.
          */
         function handleCanvasClick(e) {
-            // *** FIX ***
-            // If we just finished a pan, don't register it as a click.
+            // If we just finished a pan or drag, don't register it as a click.
             if (hasPanned) {
                 return;
             }
 
             const { x, y } = getTransformedPoint(e.clientX, e.clientY);
-
-            // Find the top-most (last drawn) node that was clicked
-            // treeCache is now populated by calculateLayout
-            let clickedEmployee = null;
-            for (let i = treeCache.length - 1; i >= 0; i--) {
-                const node = treeCache[i];
-                const bounds = node.bounds;
-                if (x >= bounds.x && x <= bounds.x + bounds.width && y >= bounds.y && y <= bounds.y + bounds.height) {
-                    clickedEmployee = node;
-                    break;
-                }
-            }
+            const clickedEmployee = getNodeAtPoint(x, y);
 
             if (clickedEmployee) {
                 currentEditingId = clickedEmployee.id;
@@ -679,7 +725,6 @@
             const resizeObserver = new ResizeObserver(entries => {
                 for (let entry of entries) {
                     if(entry.target.id === 'orgCanvas') {
-                        // *** FIX ***
                         // Use rAF to debounce the resize logic.
                         if (resizeId) {
                             cancelAnimationFrame(resizeId);
@@ -716,7 +761,6 @@
             // Toolbar buttons
             addEmployeeBtn.addEventListener('click', () => showModal(true, true));
             
-            // *** REFACTORED PNG EXPORT ***
             exportPngBtn.addEventListener('click', () => {
                 // Redraw chart using the no-shadow function
                 drawChart({ forExport: true }); 
@@ -735,12 +779,15 @@
                 scale = 1;
                 panX = canvas.width / (window.devicePixelRatio || 1) / 2;
                 panY = 50;
+                
+                // --- NEW: Resetting view also resets manual layouts ---
+                employees.forEach(emp => emp.manualX = 0);
+                saveToLocalStorage();
                 drawChart();
             });
 
             // --- New Data I/O Handlers ---
             importDataBtn.addEventListener('click', () => {
-                // Trigger the hidden file input
                 importFileInput.click();
             });
             
@@ -752,9 +799,14 @@
                 reader.onload = (event) => {
                     try {
                         const data = JSON.parse(event.target.result);
-                        // Check for new required 'level' field
                         if (Array.isArray(data) && data.every(item => item.id && item.name && item.level)) {
                             employees = data;
+                            // Ensure manualX exists, default to 0
+                            employees.forEach(emp => {
+                                if (emp.manualX === undefined) {
+                                    emp.manualX = 0;
+                                }
+                            });
                             saveToLocalStorage();
                             drawChart();
                         } else {
@@ -766,7 +818,6 @@
                 };
                 reader.readAsText(file);
                 
-                // Reset file input to allow importing the same file again
                 e.target.value = null;
             });
 
@@ -782,15 +833,15 @@
             });
             
             clearChartBtn.addEventListener('click', () => {
-                // This is a "safe" clear. It just resets to the default state.
                 const rootId = crypto.randomUUID();
                 employees = [{
                     id: rootId,
                     name: 'CEO',
                     designation: 'Chief Executive Officer',
                     department: 'Executive',
-                    level: 'L1', // <-- ADDED
-                    reportsTo: null
+                    level: 'L1',
+                    reportsTo: null,
+                    manualX: 0
                 }];
                 saveToLocalStorage();
                 drawChart();
@@ -803,7 +854,6 @@
             modalCloseBtn.addEventListener('click', () => showModal(false));
             modalCancelBtn.addEventListener('click', () => showModal(false));
             
-            // Close modal on outside click
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     showModal(false);
@@ -819,7 +869,6 @@
                 
                 const { x, y } = getTransformedPoint(e.clientX, e.clientY);
                 
-                // Adjust pan to zoom towards the cursor
                 panX -= x * (zoom - 1) * scale;
                 panY -= y * (zoom - 1) * scale;
                 scale *= zoom;
@@ -827,35 +876,95 @@
                 drawChart();
             });
 
+            // --- UPDATED: mousedown listener for Pan vs. Drag ---
             canvas.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return; // Only left click
-                isPanning = true;
-                hasPanned = false; // <-- ADDED: Reset pan flag on new mousedown
-                panStart.x = e.clientX - panX;
-                panStart.y = e.clientY - panY;
-                canvas.style.cursor = 'grabbing';
+                hasPanned = false; // Reset pan/drag flag
+                
+                const worldPos = getTransformedPoint(e.clientX, e.clientY);
+                const clickedNode = getNodeAtPoint(worldPos.x, worldPos.y);
+
+                // Check for Ctrl key (or Cmd on Mac)
+                if ((e.ctrlKey || e.metaKey) && clickedNode) {
+                    // --- Start DRAGGING NODE ---
+                    isDraggingNode = true;
+                    draggedNode = clickedNode; // This is the node from nodeMap
+                    dragStartMouse = worldPos;
+                    canvas.style.cursor = 'move';
+                } else {
+                    // --- Start PANNING ---
+                    isPanning = true;
+                    panStart.x = e.clientX - panX;
+                    panStart.y = e.clientY - panY;
+                    canvas.style.cursor = 'grabbing';
+                }
             });
 
+            // --- UPDATED: mousemove listener for Pan vs. Drag ---
             canvas.addEventListener('mousemove', (e) => {
-                if (!isPanning) return;
-                hasPanned = true; // <-- ADDED: Mark that a pan is happening
-                panX = e.clientX - panStart.x;
-                panY = e.clientY - panStart.y;
-                drawChart();
+                if (isDraggingNode) {
+                    // --- Handle NODE DRAG ---
+                    hasPanned = true; // Mark as dragged to prevent click
+                    const worldPos = getTransformedPoint(e.clientX, e.clientY);
+                    
+                    // Calculate horizontal mouse movement in world space
+                    const deltaX = worldPos.x - dragStartMouse.x;
+                    
+                    // Find the employee in the main data array
+                    const emp = employees.find(e => e.id === draggedNode.id);
+                    if (emp) {
+                        // Add the delta to its manual offset
+                        emp.manualX = (emp.manualX || 0) + deltaX;
+                    }
+                    
+                    // Update start position for next frame's delta
+                    dragStartMouse.x = worldPos.x; 
+                    
+                    drawChart();
+
+                } else if (isPanning) {
+                    // --- Handle PAN ---
+                    hasPanned = true; // Mark as panned to prevent click
+                    panX = e.clientX - panStart.x;
+                    panY = e.clientY - panStart.y;
+                    drawChart();
+                }
             });
 
+            // --- UPDATED: mouseup listener for Pan vs. Drag ---
             canvas.addEventListener('mouseup', () => {
-                isPanning = false;
-                canvas.style.cursor = 'grab';
+                if (isDraggingNode) {
+                    // --- Stop DRAGGING ---
+                    isDraggingNode = false;
+                    draggedNode = null;
+                    saveToLocalStorage(); // Save the new manualX positions
+                    canvas.style.cursor = 'grab';
+                }
+                
+                if (isPanning) {
+                    // --- Stop PANNING ---
+                    isPanning = false;
+                    canvas.style.cursor = 'grab';
+                }
             });
             
+            // --- UPDATED: mouseleave listener for Pan vs. Drag ---
             canvas.addEventListener('mouseleave', () => {
-                 isPanning = false;
+                 if (isDraggingNode) {
+                    isDraggingNode = false;
+                    draggedNode = null;
+                    saveToLocalStorage();
+                 }
+                 if (isPanning) {
+                    isPanning = false;
+                 }
                  canvas.style.cursor = 'default';
             });
             
             canvas.addEventListener('mouseenter', () => {
-                canvas.style.cursor = 'grab';
+                if (!isPanning && !isDraggingNode) {
+                    canvas.style.cursor = 'grab';
+                }
             });
 
             canvas.addEventListener('click', handleCanvasClick);
