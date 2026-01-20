@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en" class="theme-dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BTY Smart Relief Platform</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* === THEME === */
+    :root {
+      --bg-color: #0F172A;
+      --card-bg: #1E293B;
+      --text-main: #F8FAFC;
+      --accent: #3B82F6;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-color); }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+    .glass-panel {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .fade-in { animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Tab Active State */
+    .tab-active {
+        background-color: #3B82F6;
+        color: white;
+        border-color: #2563EB;
+    }
+    .tab-inactive {
+        background-color: #1E293B;
+        color: #94A3B8;
+        border-color: #334155;
+    }
+
+    /* Toast */
+    #toast {
+      visibility: hidden;
+      min-width: 250px;
+      background-color: #10B981;
+      color: #fff;
+      text-align: center;
+      border-radius: 8px;
+      padding: 16px;
+      position: fixed;
+      z-index: 50;
+      left: 50%;
+      top: 30px;
+      transform: translateX(-50%);
+      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      opacity: 0;
+      transition: opacity 0.3s, top 0.3s;
+    }
+    #toast.show { visibility: visible; opacity: 1; top: 50px; }
+  </style>
+</head>
+
+<body class="min-h-screen flex flex-col p-4 md:p-8 pb-32">
+
+  <!-- TOAST -->
+  <div id="toast"><i class="ph ph-check-circle text-lg align-middle mr-2"></i> Action Successful</div>
+
+  <!-- HEADER -->
+  <header class="max-w-6xl mx-auto w-full mb-6 flex justify-between items-center">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+        <i class="ph ph-chalkboard-teacher text-blue-400"></i>
+        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.1</span>
+      </h1>
+      <p class="text-slate-400 mt-1">Integrated Absence Management & Relief Assignment</p>
+    </div>
+    <div id="dataStatus" class="text-xs px-3 py-1 rounded-full bg-blue-900/30 text-blue-400 border border-blue-800 flex items-center gap-2">
+      <i class="ph ph-circle-notch animate-spin"></i> Loading Data...
+    </div>
+  </header>
+
+  <!-- TABS -->
+  <div class="max-w-6xl mx-auto w-full mb-6 flex gap-4">
+    <button onclick="switchTab('teacher')" id="tabTeacher" class="flex-1 py-4 rounded-xl border text-lg font-bold flex items-center justify-center gap-2 transition-all tab-inactive">
+        <i class="ph ph-hand-waving"></i> I am Absent
+    </button>
+    <button onclick="switchTab('admin')" id="tabAdmin" class="flex-1 py-4 rounded-xl border text-lg font-bold flex items-center justify-center gap-2 transition-all tab-inactive">
+        <i class="ph ph-users-four"></i> Admin Portal
+    </button>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <main class="max-w-6xl mx-auto w-full relative">
+
+    <!-- === TEACHER VIEW === -->
+    <div id="viewTeacher" class="hidden fade-in">
+        <div class="glass-panel p-8 rounded-xl shadow-lg max-w-3xl mx-auto">
+            <h2 class="text-2xl font-bold text-white mb-6 border-b border-slate-700 pb-4">Report Absence & Set Instructions</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div>
+                    <label class="block text-sm text-slate-400 mb-1">Your Name</label>
+                    <select id="t_teacherSelect" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-slate-400 mb-1">Date of Absence</label>
+                    <input type="date" id="t_dateInput" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+            </div>
+
+            <div id="t_classList" class="space-y-4 mb-8">
+                <div class="text-center text-slate-500 py-8 italic">Select your name and date to see your classes.</div>
+            </div>
+
+            <button onclick="notifyAdmin()" id="t_notifyBtn" disabled class="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-lg flex justify-center items-center gap-2 transition-all">
+                <i class="ph ph-paper-plane-tilt text-xl"></i> Notify IP Head via Email
+            </button>
+            <div id="t_fallbackLink" class="text-center mt-4 hidden">
+                <a href="#" id="t_manualLink" target="_blank" class="text-blue-400 hover:text-blue-300 underline text-sm">
+                    Email didn't open? Click here to open manually.
+                </a>
+            </div>
+            <p class="text-xs text-center text-slate-500 mt-2">Sends to: harman_johll@schools.gov.sg</p>
+        </div>
+    </div>
+
+    <!-- === ADMIN VIEW === -->
+    <div id="viewAdmin" class="hidden fade-in grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Controls -->
+        <section class="lg:col-span-4 space-y-6">
+            <div class="glass-panel p-6 rounded-xl shadow-lg">
+                <h2 class="text-lg font-semibold mb-4 text-blue-300 flex items-center gap-2">
+                    <i class="ph ph-faders"></i> Configuration
+                </h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Absent Teacher</label>
+                        <select id="a_teacherSelect" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-slate-400 mb-1">Date</label>
+                        <input type="date" id="a_dateInput" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <div id="a_weekType" class="text-xs text-right mt-1 text-emerald-400 font-mono"></div>
+                    </div>
+                    
+                    <!-- Pre-filled Instructions Viewer -->
+                    <div id="a_instructionsBox" class="hidden bg-slate-800 p-3 rounded border border-slate-600">
+                        <div class="text-xs text-orange-400 font-bold uppercase mb-1">Teacher Notes Detected</div>
+                        <div id="a_instructionsContent" class="text-sm text-slate-300 italic"></div>
+                    </div>
+
+                    <button onclick="runAdminAnalysis()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg">
+                        Generate Relief Plan
+                    </button>
+                </div>
+            </div>
+
+            <!-- Draft Panel -->
+             <div class="glass-panel p-6 rounded-xl shadow-lg border-t-4 border-emerald-500">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                        <i class="ph ph-envelope-open"></i> Draft Plan
+                    </h2>
+                    <button onclick="clearDraft()" class="text-xs text-red-400 hover:text-red-300">Clear</button>
+                </div>
+                <div id="draftList" class="space-y-2 mb-6 text-sm text-slate-300">
+                    <div class="text-slate-500 italic">No assignments yet.</div>
+                </div>
+                <button onclick="sendAdminSummary()" id="btnAdminEmail" disabled class="w-full py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-sm font-medium flex justify-center items-center gap-2">
+                    <i class="ph ph-paper-plane-tilt"></i> Email Staff Summary
+                </button>
+                <div id="a_fallbackLink" class="text-center mt-2 hidden">
+                    <a href="#" id="a_manualLink" target="_blank" class="text-blue-400 hover:text-blue-300 underline text-xs">
+                        Click to open email manually
+                    </a>
+                </div>
+            </div>
+            
+            <div class="text-center">
+                 <button onclick="clearLocalStorage('tracker')" class="text-xs text-slate-500 hover:text-white underline">Reset Relief History</button>
+            </div>
+        </section>
+
+        <!-- Results -->
+        <section class="lg:col-span-8">
+            <div class="glass-panel p-6 rounded-xl shadow-lg min-h-[500px] flex flex-col">
+                <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
+                  <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                    <i class="ph ph-list-checks"></i> 
+                    <span id="resultsTitle">Relief Options</span>
+                  </h2>
+                </div>
+                <div id="resultsList" class="space-y-3 flex-1 overflow-y-auto pr-2">
+                    <div class="h-full flex flex-col items-center justify-center text-slate-500 opacity-60">
+                        <i class="ph ph-chalkboard text-6xl mb-4"></i>
+                        <p>Select teacher and date to view plan.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+  </main>
+
+  <script>
+    // --- CONSTANTS ---
+    const DATA_URLS = {
+        TIMETABLE: 'https://raw.githubusercontent.com/harmanjohll/btyrelief/refs/heads/main/BTYTT_2026Sem1_v1.csv',
+        CALENDAR: 'https://raw.githubusercontent.com/harmanjohll/btyrelief/refs/heads/main/CalendarReference.csv'
+    };
+    const STORAGE_KEYS = { TRACKER: 'bty_relief_tracker' };
+    
+    // Emails
+    const EMAILS = {
+        TEACHER_RELIEF: "harman_johll@btyss.moe.edu.sg", // Receiver of individual task
+        ADMIN_IP: "harman_johll@schools.gov.sg"           // Receiver of summary/notification
+    };
+
+    const SUBJECT_MAP = {
+      'MA': 'Mathematics', 'SC': 'Science', 'EL': 'English', 'MT': 'Mother Tongue',
+      'HU': 'Humanities', 'AL': 'ALP', 'SE': 'SET', 'PE': 'Phys Ed',
+      'AT': 'Art', 'MU': 'Music', 'DT': 'D&T', 'FN': 'F&N', 'PO': 'POA/Social Studies'
+    };
+
+    // --- STATE ---
+    let teachersData = [];     
+    let calendarData = [];     
+    let currentWeekType = '';  
+    let currentDayName = '';
+    let draftAssignments = [];
+    let teacherInstructions = {}; 
+
+    // --- DOM ELEMENTS ---
+    const els = {
+        status: document.getElementById('dataStatus'),
+        toast: document.getElementById('toast'),
+        // Views
+        viewTeacher: document.getElementById('viewTeacher'),
+        viewAdmin: document.getElementById('viewAdmin'),
+        tabTeacher: document.getElementById('tabTeacher'),
+        tabAdmin: document.getElementById('tabAdmin'),
+        // Teacher Mode
+        t_teacherSelect: document.getElementById('t_teacherSelect'),
+        t_dateInput: document.getElementById('t_dateInput'),
+        t_classList: document.getElementById('t_classList'),
+        t_notifyBtn: document.getElementById('t_notifyBtn'),
+        t_fallbackLink: document.getElementById('t_fallbackLink'),
+        t_manualLink: document.getElementById('t_manualLink'),
+        // Admin Mode
+        a_teacherSelect: document.getElementById('a_teacherSelect'),
+        a_dateInput: document.getElementById('a_dateInput'),
+        a_weekType: document.getElementById('a_weekType'),
+        a_instructionsBox: document.getElementById('a_instructionsBox'),
+        a_instructionsContent: document.getElementById('a_instructionsContent'),
+        resultsList: document.getElementById('resultsList'),
+        resultsTitle: document.getElementById('resultsTitle'),
+        draftList: document.getElementById('draftList'),
+        btnAdminEmail: document.getElementById('btnAdminEmail'),
+        a_fallbackLink: document.getElementById('a_fallbackLink'),
+        a_manualLink: document.getElementById('a_manualLink')
+    };
+
+    // --- INITIALIZATION ---
+    window.addEventListener('DOMContentLoaded', async () => {
+        // Default Date
+        const today = new Date().toISOString().split('T')[0];
+        els.t_dateInput.value = today;
+        els.a_dateInput.value = today;
+
+        await fetchAllData();
+
+        // Check URL Params for Pre-population (Magic Link Logic)
+        const urlParams = new URLSearchParams(window.location.search);
+        const pTeacher = urlParams.get('teacher');
+        const pDate = urlParams.get('date');
+        const pInstr = urlParams.get('instr'); 
+
+        if(pTeacher && pDate) {
+            switchTab('admin');
+            els.a_teacherSelect.value = pTeacher;
+            els.a_dateInput.value = pDate;
+            
+            if(pInstr) {
+                try {
+                    const instrObj = JSON.parse(decodeURIComponent(pInstr));
+                    teacherInstructions = instrObj;
+                    displayAdminInstructions(instrObj);
+                } catch(e) { console.error("Error parsing instructions", e); }
+            }
+
+            setTimeout(() => {
+                updateDateLogic('admin');
+                runAdminAnalysis();
+            }, 500);
+        } else {
+            switchTab('teacher'); 
+        }
+    });
+
+    // --- DATA FETCHING ---
+    async function fetchAllData() {
+        try {
+            const [ttRes, calRes] = await Promise.all([
+                fetch(DATA_URLS.TIMETABLE + '?t=' + Date.now()),
+                fetch(DATA_URLS.CALENDAR + '?t=' + Date.now())
+            ]);
+
+            if(!ttRes.ok || !calRes.ok) throw new Error("GitHub Error");
+
+            teachersData = parseCSV(await ttRes.text());
+            calendarData = parseCalendarCSV(await calRes.text());
+
+            els.status.innerHTML = `<i class="ph ph-check-circle"></i> System Ready`;
+            els.status.className = "text-xs px-3 py-1 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-800 flex items-center gap-2";
+            
+            populateTeacherSelects();
+        } catch (err) {
+            els.status.innerHTML = `<i class="ph ph-warning-circle"></i> Data Error`;
+            els.status.className = "text-xs px-3 py-1 rounded-full bg-red-900/30 text-red-400 border border-red-800 flex items-center gap-2";
+        }
+    }
+
+    // --- PARSERS ---
+    function parseCalendarCSV(text) {
+        const rows = text.split('\n').map(r => r.trim()).filter(r => r);
+        const startIdx = rows[0].toLowerCase().includes('start') ? 1 : 0;
+        return rows.slice(startIdx).map(row => {
+            const cols = row.split(',');
+            return { dateStr: cols[0], type: cols[1] }; 
+        });
+    }
+
+    function parseCSV(csvText) {
+      const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
+      const headers = lines[0].split(',');
+      const result = [];
+      for (let i = 1; i < lines.length; i++) {
+        const currentline = lines[i].split(','); 
+        if(currentline.length < 7) continue; 
+        const obj = {};
+        obj.department = currentline[0];
+        obj.name = currentline[3];
+        obj.email = currentline[4];
+        obj.schedule = {};
+        for(let j=7; j<headers.length; j++) {
+            if(headers[j] && currentline[j]) obj.schedule[headers[j].trim()] = currentline[j].trim();
+        }
+        result.push(obj);
+      }
+      return result;
+    }
+
+    // --- VIEW SWITCHING ---
+    window.switchTab = (tab) => {
+        if(tab === 'teacher') {
+            els.viewTeacher.classList.remove('hidden');
+            els.viewAdmin.classList.add('hidden');
+            els.tabTeacher.classList.add('tab-active');
+            els.tabTeacher.classList.remove('tab-inactive');
+            els.tabAdmin.classList.remove('tab-active');
+            els.tabAdmin.classList.add('tab-inactive');
+        } else {
+            els.viewAdmin.classList.remove('hidden');
+            els.viewTeacher.classList.add('hidden');
+            els.tabAdmin.classList.add('tab-active');
+            els.tabAdmin.classList.remove('tab-inactive');
+            els.tabTeacher.classList.remove('tab-active');
+            els.tabTeacher.classList.add('tab-inactive');
+        }
+    }
+
+    function populateTeacherSelects() {
+        teachersData.sort((a,b) => {
+          if (a.department === b.department) return a.name.localeCompare(b.name);
+          return a.department.localeCompare(b.department);
+        });
+        
+        let html = '<option value="">-- Select Name --</option>';
+        let currentDept = '';
+        teachersData.forEach(t => {
+            if(t.department !== currentDept) {
+                if(currentDept !== '') html += '</optgroup>';
+                currentDept = t.department;
+                html += `<optgroup label="${currentDept}">`;
+            }
+            html += `<option value="${t.name}">${t.name}</option>`;
+        });
+        if(currentDept !== '') html += '</optgroup>';
+        
+        els.t_teacherSelect.innerHTML = html;
+        els.a_teacherSelect.innerHTML = html;
+    }
+
+    // --- TEACHER MODE LOGIC ---
+    els.t_teacherSelect.addEventListener('change', updateTeacherView);
+    els.t_dateInput.addEventListener('change', updateTeacherView);
+
+    function updateTeacherView() {
+        const name = els.t_teacherSelect.value;
+        const dateVal = els.t_dateInput.value;
+        
+        els.t_fallbackLink.classList.add('hidden'); // Reset link visibility
+
+        if(!name || !dateVal) {
+            els.t_classList.innerHTML = `<div class="text-center text-slate-500 py-8 italic">Select your name and date to see your classes.</div>`;
+            els.t_notifyBtn.disabled = true;
+            return;
+        }
+
+        updateDateLogic('teacher'); // Calc week type
+        
+        const teacher = teachersData.find(t => t.name === name);
+        let classesFound = false;
+        let html = '';
+
+        for(let p=1; p<=11; p++) {
+            const key = `${currentWeekType}${currentDayName}${p}`;
+            const code = teacher.schedule[key] || "0";
+            if(code !== "0") {
+                classesFound = true;
+                const timeStr = getTimeForPeriod(p, currentDayName);
+                const subjInfo = getSubjectInfo(code);
+                
+                html += `
+                    <div class="bg-slate-800 border border-slate-600 rounded-lg p-4 flex flex-col md:flex-row gap-4 items-start md:items-center">
+                        <div class="w-full md:w-1/3">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded">P${p}</span>
+                                <span class="text-slate-400 text-xs">${timeStr}</span>
+                            </div>
+                            <div class="text-white font-bold text-lg">${code}</div>
+                            <div class="text-blue-400 text-sm">${subjInfo.name}</div>
+                        </div>
+                        <div class="w-full md:w-2/3">
+                            <input type="text" id="instr_p${p}" placeholder="Enter instructions for relief teacher..." 
+                                class="w-full bg-slate-900 border border-slate-700 rounded p-3 text-sm text-slate-200 focus:border-blue-500 outline-none">
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        if(!classesFound) {
+            html = `<div class="p-4 bg-emerald-900/20 border border-emerald-800 rounded text-center text-emerald-400">No classes found for this date. You are free!</div>`;
+            els.t_notifyBtn.disabled = true;
+        } else {
+            els.t_notifyBtn.disabled = false;
+        }
+        
+        els.t_classList.innerHTML = html;
+    }
+
+    window.notifyAdmin = () => {
+        const name = els.t_teacherSelect.value;
+        const date = els.t_dateInput.value;
+        const teacher = teachersData.find(t => t.name === name);
+
+        // Collect instructions
+        const instructions = {};
+        for(let p=1; p<=11; p++) {
+            const input = document.getElementById(`instr_p${p}`);
+            if(input && input.value.trim()) {
+                instructions[p] = input.value.trim();
+            }
+        }
+
+        // Create Magic Link
+        const baseUrl = window.location.href.split('?')[0];
+        const instrParam = encodeURIComponent(JSON.stringify(instructions));
+        const magicLink = `${baseUrl}?teacher=${encodeURIComponent(name)}&date=${date}&instr=${instrParam}`;
+
+        // Build Email
+        const subject = `Absence Notification: ${name} (${date})`;
+        let body = `Dear IP Head,%0D%0A%0D%0AI am away on ${date}.%0D%0A%0D%0APlease click this link to assign relief (Instructions included):%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
+        
+        for(let p=1; p<=11; p++) {
+            const key = `${currentWeekType}${currentDayName}${p}`;
+            const code = teacher.schedule[key] || "0";
+            if(code !== "0") {
+                const instr = instructions[p] ? ` (Note: ${instructions[p]})` : "";
+                body += `- P${p} (${code})${instr}%0D%0A`;
+            }
+        }
+
+        const mailtoUrl = `mailto:${EMAILS.ADMIN_IP}?subject=${subject}&body=${body}`;
+        
+        // TRIGGER EMAIL SAFELY
+        triggerMailto(mailtoUrl, els.t_fallbackLink, els.t_manualLink);
+        showToast("Opening Email Client...");
+    };
+
+    // --- ADMIN MODE LOGIC ---
+    els.a_dateInput.addEventListener('change', () => updateDateLogic('admin'));
+
+    window.runAdminAnalysis = () => {
+        const name = els.a_teacherSelect.value;
+        if(!name || !currentWeekType) return;
+        
+        updateDateLogic('admin'); 
+        const teacher = teachersData.find(t => t.name === name);
+        
+        els.resultsTitle.textContent = `Relief Plan: ${name}`;
+        els.resultsList.innerHTML = '';
+
+        let tasksFound = 0;
+        for(let p=1; p<=11; p++) {
+            const key = `${currentWeekType}${currentDayName}${p}`;
+            const code = teacher.schedule[key] || "0";
+
+            if(code !== "0") {
+                tasksFound++;
+                const subjInfo = getSubjectInfo(code);
+                const results = findSubstitutes(teacher, key, subjInfo.code);
+                const timeStr = getTimeForPeriod(p, currentDayName);
+                const instr = teacherInstructions[p] || "None";
+                
+                renderAdminCard(p, timeStr, code, subjInfo.name, results, teacher, instr);
+            }
+        }
+        
+        if(tasksFound === 0) {
+            els.resultsList.innerHTML = `<div class="p-8 text-center text-slate-400">Teacher has no classes on this date.</div>`;
+        }
+    };
+
+    function displayAdminInstructions(instrObj) {
+        if(Object.keys(instrObj).length > 0) {
+            els.a_instructionsBox.classList.remove('hidden');
+            let html = '';
+            for(const [p, text] of Object.entries(instrObj)) {
+                html += `<div><span class="font-bold text-slate-400">P${p}:</span> ${text}</div>`;
+            }
+            els.a_instructionsContent.innerHTML = html;
+        }
+    }
+
+    function renderAdminCard(p, timeStr, code, subjName, results, absentTeacher, instr) {
+        const section = document.createElement('div');
+        section.className = "bg-slate-800/50 border border-slate-700 rounded-lg p-4 mb-4";
+        
+        const header = `
+            <div class="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
+                <div class="flex flex-col">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-blue-600 text-white font-bold px-2 py-1 rounded text-sm">Period ${p}</div>
+                        <span class="text-slate-400 text-xs font-mono">${timeStr}</span>
+                    </div>
+                    <div class="mt-1">
+                        <span class="text-white font-semibold mr-2">${code}</span>
+                        <span class="text-xs text-blue-300 bg-blue-900/40 px-2 py-0.5 rounded">${subjName}</span>
+                    </div>
+                    ${instr !== "None" ? `<div class="text-xs text-orange-400 mt-1 italic">Note: ${instr}</div>` : ''}
+                </div>
+            </div>
+        `;
+
+        let candidatesHtml = '';
+        if(results.length === 0) {
+            candidatesHtml = `<div class="text-xs text-red-400">No free teachers found.</div>`;
+        } else {
+            candidatesHtml = `<div class="space-y-2">`;
+            results.slice(0, 3).forEach(item => {
+                 candidatesHtml += `
+                    <div class="flex justify-between items-center bg-slate-900/50 p-2 rounded border border-slate-700/50">
+                        <div>
+                             <div class="text-sm text-slate-200 font-medium">${item.teacher.name}</div>
+                             <div class="text-[10px] text-slate-400">
+                                ${item.badges.map(b => `<span class="${b.color} mr-2">${b.text}</span>`).join('')}
+                             </div>
+                        </div>
+                        <button onclick="addToDraft('${item.teacher.name}', '${code}', 'P${p}', '${timeStr}', '${subjName}')" 
+                            class="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded transition-colors">
+                            Add
+                        </button>
+                    </div>
+                 `;
+            });
+            candidatesHtml += `</div>`;
+        }
+        section.innerHTML = header + candidatesHtml;
+        els.resultsList.appendChild(section);
+    }
+
+    // --- ALGORITHM ---
+    function findSubstitutes(absentTeacher, columnKey, neededSubjectCode) {
+        const results = [];
+        const dayPrefix = columnKey.replace(/\d+$/, ''); 
+        
+        teachersData.forEach(candidate => {
+            if(candidate.name === absentTeacher.name) return;
+            if(candidate.schedule[columnKey] !== "0") return;
+
+            let score = 0;
+            let badges = [];
+            let isMatch = false;
+
+            // Subject
+            const teachesSubject = Object.values(candidate.schedule).some(v => v && v.includes(neededSubjectCode));
+            if(teachesSubject) {
+                score += 100;
+                isMatch = true;
+                badges.push({ text: `Teaches ${neededSubjectCode}`, color: "text-purple-400" });
+            }
+
+            // Dept
+            if(candidate.department === absentTeacher.department) {
+                score += 40;
+                isMatch = true;
+                badges.push({ text: "Same Dept", color: "text-blue-400" });
+            }
+
+            // Load
+            let dailyLoad = 0;
+            for(let k in candidate.schedule) {
+                if(k.startsWith(dayPrefix) && candidate.schedule[k] !== "0") dailyLoad++;
+            }
+            if(dailyLoad > 6) {
+                score -= 500;
+                badges.push({ text: "Overloaded", color: "text-red-400" });
+            } else {
+                score -= (dailyLoad * 5);
+            }
+
+            // Relief Tracker
+            const reliefCount = getReliefCount(candidate.name);
+            score -= (reliefCount * 10);
+
+            results.push({ teacher: candidate, score, badges, isMatch, dailyLoad });
+        });
+
+        let filtered = results.filter(r => r.isMatch);
+        if(filtered.length === 0) {
+            results.sort((a,b) => b.score - a.score);
+            return results.slice(0,3).map(r => {
+                r.badges.push({ text: "Non-Specialist", color: "text-slate-500" });
+                return r;
+            });
+        }
+        filtered.sort((a,b) => b.score - a.score);
+        return filtered;
+    }
+
+    // --- SHARED UTILS ---
+    function updateDateLogic(mode) {
+        const dateInput = mode === 'teacher' ? els.t_dateInput : els.a_dateInput;
+        const dateVal = new Date(dateInput.value);
+        if(isNaN(dateVal)) return;
+
+        const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        currentDayName = days[dateVal.getDay()];
+
+        const monday = getMonday(dateVal);
+        const dateStr = formatDateToCSVStyle(monday);
+        
+        let foundWeek = calendarData.find(w => w.dateStr === dateStr);
+        if (!foundWeek) {
+            foundWeek = calendarData.find(w => {
+                const parts = w.dateStr.split('-');
+                if(parts.length === 3) {
+                    const months = {Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11};
+                    const d = parseInt(parts[0]);
+                    const m = months[parts[1]];
+                    const y = 2000 + parseInt(parts[2]);
+                    const wDate = new Date(y, m, d);
+                    return wDate.toDateString() === monday.toDateString();
+                }
+                return false;
+            });
+        }
+        currentWeekType = foundWeek ? foundWeek.type : "Odd";
+        if(mode === 'admin') els.a_weekType.textContent = `${currentWeekType} Week`;
+    }
+
+    function getTimeForPeriod(p, day) {
+        // Bell Schedule: Mon, Tue, Thu, Fri: 07:55 start. Wed: 08:30 (P2)
+        let startMin = (7 * 60) + 55; 
+        let offset = (p - 1) * 35;
+        let pStartMin = startMin + offset;
+        let pEndMin = pStartMin + 35;
+        
+        if(day === 'Wed' && p === 1) return "Assembly/N.A.";
+        return `${formatTime(pStartMin)} - ${formatTime(pEndMin)}`;
+    }
+
+    function formatTime(totalMinutes) {
+        const h = Math.floor(totalMinutes / 60);
+        const m = totalMinutes % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    }
+
+    function getSubjectInfo(code) {
+        const match = code.match(/\d?([A-Z]{2})/);
+        const sCode = match ? match[1] : "??";
+        return { code: sCode, name: SUBJECT_MAP[sCode] || "Subject" };
+    }
+
+    function getMonday(d) {
+      d = new Date(d);
+      const day = d.getDay(), diff = d.getDate() - day + (day == 0 ? -6 : 1); 
+      return new Date(d.setDate(diff));
+    }
+
+    function formatDateToCSVStyle(date) {
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear().toString().slice(-2)}`;
+    }
+
+    // --- DRAFT LOGIC ---
+    window.addToDraft = (subName, code, period, timeStr, subjName) => {
+        incrementReliefCount(subName);
+        const absentName = els.a_teacherSelect.value;
+        const dateStr = els.a_dateInput.value;
+        const pNum = parseInt(period.replace('P',''));
+        const instr = teacherInstructions[pNum] || "";
+
+        draftAssignments.push({ subName, code, period, timeStr, subjName, absentName, dateStr, instr });
+        renderDraft();
+        showToast("Added to Draft Plan");
+        runAdminAnalysis(); 
+    };
+
+    function renderDraft() {
+        if(draftAssignments.length === 0) {
+            els.draftList.innerHTML = `<div class="text-slate-500 italic">No assignments yet.</div>`;
+            els.btnAdminEmail.disabled = true;
+            return;
+        }
+
+        let html = '';
+        draftAssignments.forEach((item, idx) => {
+            const subject = `Relief Duty: ${item.absentName} (${item.dateStr})`;
+            const body = `Dear ${item.subName},%0D%0A%0D%0APlease cover the following lesson:%0D%0A${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})%0D%0A%0D%0ANotes: ${item.instr || "None"}%0D%0A%0D%0AThank you.`;
+            const mailto = `mailto:${EMAILS.TEACHER_RELIEF}?subject=${subject}&body=${body}`;
+
+            html += `
+                <div class="bg-slate-700/50 p-2 rounded border border-slate-600 flex justify-between items-start">
+                    <div>
+                        <div class="text-sm font-bold text-emerald-400">${item.subName}</div>
+                        <div class="text-xs text-slate-300">${item.period} (${item.timeStr})</div>
+                        <div class="text-xs text-slate-400">${item.subjName}</div>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <a href="${mailto}" target="_blank" class="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] rounded text-center">Notify</a>
+                        <button onclick="removeDraft(${idx})" class="text-red-400 hover:text-red-300 text-[10px]">Remove</button>
+                    </div>
+                </div>
+            `;
+        });
+        els.draftList.innerHTML = html;
+        els.btnAdminEmail.disabled = false;
+    }
+
+    window.removeDraft = (idx) => {
+        draftAssignments.splice(idx, 1);
+        renderDraft();
+    }
+    window.clearDraft = () => {
+        draftAssignments = [];
+        renderDraft();
+    }
+
+    window.sendAdminSummary = () => {
+        if(draftAssignments.length === 0) return;
+        const item = draftAssignments[0];
+        const subject = `Relief Plan: ${item.absentName} (${item.dateStr})`;
+        
+        let body = `Dear Colleagues,%0D%0A%0D%0A${item.absentName} is away on ${item.dateStr}. We need help covering the following lessons:%0D%0A%0D%0A`;
+        
+        draftAssignments.forEach(d => {
+            body += `* ${d.period} (${d.timeStr}): ${d.subjName} (${d.code})%0D%0A`;
+            body += `   Covered by: ${d.subName}%0D%0A`;
+            if(d.instr) body += `   Instructions: ${d.instr}%0D%0A`;
+            body += `%0D%0A`;
+        });
+        
+        body += `Thank you for your support.`;
+        const mailtoUrl = `mailto:${EMAILS.ADMIN_IP}?subject=${subject}&body=${body}`;
+        
+        triggerMailto(mailtoUrl, els.a_fallbackLink, els.a_manualLink);
+        showToast("Opening Email Client...");
+    }
+
+    // --- HELPER: ROBUST EMAIL TRIGGER ---
+    function triggerMailto(url, fallbackContainer, linkElement) {
+        // 1. Try simple window.location (cleanest if allowed)
+        // 2. Fallback to window.open
+        // 3. Fallback to showing visual link
+        
+        // Update the manual link href immediately just in case
+        linkElement.href = url;
+        
+        try {
+            // Attempt standard navigation
+            // Using a short timeout to allow the Toast to render first if needed
+            setTimeout(() => {
+                const win = window.open(url, '_blank');
+                if (!win || win.closed || typeof win.closed == 'undefined') {
+                    // Pop-up blocked or failed
+                    console.warn("Popup blocked. Showing manual link.");
+                    fallbackContainer.classList.remove('hidden');
+                }
+            }, 100);
+        } catch (e) {
+            console.error("Email trigger failed", e);
+            fallbackContainer.classList.remove('hidden');
+        }
+    }
+
+    // --- TRACKER ---
+    function getReliefCount(name) {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRACKER) || '{}');
+        return data[name] || 0;
+    }
+    function incrementReliefCount(name) {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRACKER) || '{}');
+        data[name] = (data[name] || 0) + 1;
+        localStorage.setItem(STORAGE_KEYS.TRACKER, JSON.stringify(data));
+    }
+    window.clearLocalStorage = () => {
+        if(confirm("Clear Relief History?")) {
+            localStorage.removeItem(STORAGE_KEYS.TRACKER);
+            location.reload();
+        }
+    }
+    
+    function showToast(msg) {
+        els.toast.innerHTML = `<i class="ph ph-check-circle text-lg align-middle mr-2"></i> ${msg}`;
+        els.toast.classList.add('show');
+        setTimeout(() => els.toast.classList.remove('show'), 3000);
+    }
+
+  </script>
+</body>
+</html>
