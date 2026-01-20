@@ -86,7 +86,7 @@
     <div>
       <h1 class="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
         <i class="ph ph-chalkboard-teacher text-blue-400"></i>
-        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.3 (Fix)</span>
+        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.4 (Personalized)</span>
       </h1>
       <p class="text-slate-400 mt-1">Integrated Absence Management & Relief Assignment</p>
     </div>
@@ -355,25 +355,20 @@
       const headers = lines[0].split(',').map(h => h.trim());
       
       // DYNAMIC INDEX SEARCH
-      // Look for columns containing keywords instead of hardcoding numbers
       const idxName = headers.findIndex(h => h.toUpperCase().includes('NAME'));
-      // Find email column that is NOT IP or RO
       const idxEmail = headers.findIndex(h => h.toUpperCase().includes('EMAIL') && !h.toUpperCase().includes('IP') && !h.toUpperCase().includes('RO'));
       const idxIP = headers.findIndex(h => h.toUpperCase().includes('IP'));
       const idxRO = headers.findIndex(h => h.toUpperCase().includes('RO'));
       
-      // Fallbacks if not found (assume v4.2 structure)
       const iName = idxName !== -1 ? idxName : 3;
       const iEmail = idxEmail !== -1 ? idxEmail : 4;
       const iIP = idxIP !== -1 ? idxIP : 5;
       const iRO = idxRO !== -1 ? idxRO : 6;
       
-      // Determine where schedule starts (usually after the last metadata column)
       const startSchedule = Math.max(iName, iEmail, iIP, iRO) + 1;
 
       const result = [];
       for (let i = 1; i < lines.length; i++) {
-        // Safe CSV Split (Handles quotes like "Last, First")
         const cols = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.trim().replace(/^"|"$/g, ''));
         
         if(cols.length < startSchedule) continue; 
@@ -392,6 +387,12 @@
         result.push(obj);
       }
       return result;
+    }
+
+    // --- HELPER TO FIND TEACHER BY EMAIL ---
+    function findTeacherByEmail(email) {
+        if (!email) return null;
+        return teachersData.find(t => t.email && t.email.toLowerCase().trim() === email.toLowerCase().trim());
     }
 
     // --- VIEW SWITCHING ---
@@ -443,7 +444,7 @@
         const name = els.t_teacherSelect.value;
         const dateVal = els.t_dateInput.value;
         
-        els.t_fallbackLink.classList.add('hidden'); // Reset link visibility
+        els.t_fallbackLink.classList.add('hidden'); 
 
         if(!name || !dateVal) {
             els.t_classList.innerHTML = `<div class="text-center text-slate-500 py-8 italic">Select your name and date to see your classes.</div>`;
@@ -452,12 +453,15 @@
             return;
         }
 
-        updateDateLogic('teacher'); // Calc week type
+        updateDateLogic('teacher'); 
         
         const teacher = teachersData.find(t => t.name === name);
         
-        // Show who will be notified
-        const recipient = teacher.emailIP ? `IP Head: ${teacher.emailIP}` : `Default Admin: ${EMAILS.FALLBACK_ADMIN}`;
+        // Resolve IP Head Name if possible
+        const ipHeadObj = findTeacherByEmail(teacher.emailIP);
+        const ipHeadName = ipHeadObj ? ipHeadObj.name : "IP Head";
+        const recipient = teacher.emailIP ? `${ipHeadName} (${teacher.emailIP})` : `Default Admin: ${EMAILS.FALLBACK_ADMIN}`;
+        
         els.t_recipientDisplay.textContent = `Will notify: ${recipient}`;
 
         let classesFound = false;
@@ -514,7 +518,6 @@
             }
         }
 
-        // Create Magic Link
         const baseUrl = window.location.href.split('?')[0];
         const instrParam = encodeURIComponent(JSON.stringify(instructions));
         const magicLink = `${baseUrl}?teacher=${encodeURIComponent(name)}&date=${date}&instr=${instrParam}`;
@@ -522,10 +525,14 @@
         const niceDate = formatReadableDate(date);
         
         // Build Email
-        // Use teacher's IP Head Email if available, else fallback
         const recipient = teacher.emailIP || EMAILS.FALLBACK_ADMIN;
+        
+        // Personalize Greeting
+        const ipHeadObj = findTeacherByEmail(teacher.emailIP);
+        const ipHeadName = ipHeadObj ? ipHeadObj.name : "IP Head";
+
         const subject = `Absence Notification: ${name} (${niceDate})`;
-        let body = `Dear IP Head,%0D%0A%0D%0AI am away on ${niceDate}.%0D%0A%0D%0APlease click this link to assign relief (Instructions included):%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
+        let body = `Dear ${ipHeadName},%0D%0A%0D%0AI am away on ${niceDate}.%0D%0A%0D%0APlease click this link to assign relief (Instructions included):%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
         
         for(let p=1; p<=11; p++) {
             const key = `${currentWeekType}${currentDayName}${p}`;
@@ -538,7 +545,6 @@
 
         const mailtoUrl = `mailto:${recipient}?subject=${subject}&body=${body}`;
         
-        // TRIGGER EMAIL SAFELY
         triggerMailto(mailtoUrl, els.t_fallbackLink, els.t_manualLink);
         showToast("Opening Email Client...");
     };
@@ -835,13 +841,21 @@
         const item = draftAssignments[0];
         const niceDate = formatReadableDate(item.dateStr);
         
-        // Find Absent Teacher emails for summary
-        const absentTeacher = teachersData.find(t => t.name === item.absentName);
-        const recipients = [absentTeacher.emailIP, absentTeacher.emailRO].filter(Boolean).join(',') || EMAILS.FALLBACK_ADMIN;
+        // COLLECT RECIPIENTS AND NAMES FROM DRAFT
+        const uniqueSubs = {};
+        draftAssignments.forEach(d => {
+            if(d.subEmail) uniqueSubs[d.subEmail] = d.subName;
+        });
+
+        const recipientEmails = Object.keys(uniqueSubs).join(',');
+        const recipientNames = Object.values(uniqueSubs).join(', ');
+
+        const finalTo = recipientEmails || EMAILS.FALLBACK_ADMIN;
         
         const subject = `Relief Plan: ${item.absentName} (${niceDate})`;
         
-        let body = `Dear Colleagues,%0D%0A%0D%0A${item.absentName} is away on ${niceDate}. We need help covering the following lessons:%0D%0A%0D%0A`;
+        // UPDATED GREETING
+        let body = `Dear ${recipientNames || "Colleagues"},%0D%0A%0D%0A${item.absentName} is away on ${niceDate}. We need help covering the following lessons:%0D%0A%0D%0A`;
         
         draftAssignments.forEach(d => {
             body += `* ${d.period} (${d.timeStr}): ${d.subjName} (${d.code})%0D%0A`;
@@ -851,7 +865,7 @@
         });
         
         body += `Thank you for your support.`;
-        const mailtoUrl = `mailto:${recipients}?subject=${subject}&body=${body}`;
+        const mailtoUrl = `mailto:${finalTo}?subject=${subject}&body=${body}`;
         
         triggerMailto(mailtoUrl, els.a_fallbackLink, els.a_manualLink);
         showToast("Opening Email Client...");
