@@ -86,7 +86,7 @@
     <div>
       <h1 class="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
         <i class="ph ph-chalkboard-teacher text-blue-400"></i>
-        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.2</span>
+        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.3 (Fix)</span>
       </h1>
       <p class="text-slate-400 mt-1">Integrated Absence Management & Relief Assignment</p>
     </div>
@@ -352,23 +352,42 @@
 
     function parseCSV(csvText) {
       const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
-      const headers = lines[0].split(',');
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      // DYNAMIC INDEX SEARCH
+      // Look for columns containing keywords instead of hardcoding numbers
+      const idxName = headers.findIndex(h => h.toUpperCase().includes('NAME'));
+      // Find email column that is NOT IP or RO
+      const idxEmail = headers.findIndex(h => h.toUpperCase().includes('EMAIL') && !h.toUpperCase().includes('IP') && !h.toUpperCase().includes('RO'));
+      const idxIP = headers.findIndex(h => h.toUpperCase().includes('IP'));
+      const idxRO = headers.findIndex(h => h.toUpperCase().includes('RO'));
+      
+      // Fallbacks if not found (assume v4.2 structure)
+      const iName = idxName !== -1 ? idxName : 3;
+      const iEmail = idxEmail !== -1 ? idxEmail : 4;
+      const iIP = idxIP !== -1 ? idxIP : 5;
+      const iRO = idxRO !== -1 ? idxRO : 6;
+      
+      // Determine where schedule starts (usually after the last metadata column)
+      const startSchedule = Math.max(iName, iEmail, iIP, iRO) + 1;
+
       const result = [];
       for (let i = 1; i < lines.length; i++) {
-        const currentline = lines[i].split(','); 
-        if(currentline.length < 7) continue; 
+        // Safe CSV Split (Handles quotes like "Last, First")
+        const cols = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.trim().replace(/^"|"$/g, ''));
+        
+        if(cols.length < startSchedule) continue; 
+        
         const obj = {};
-        // 0: Dept, 1: Subj, 2: Subj2, 3: Name
-        // 4: Teacher Email, 5: IP Email, 6: RO Email
-        obj.department = currentline[0];
-        obj.name = currentline[3];
-        obj.email = currentline[4];
-        obj.emailIP = currentline[5];
-        obj.emailRO = currentline[6];
+        obj.department = cols[0]; // Assume 0 is always dept
+        obj.name = cols[iName];
+        obj.email = cols[iEmail];
+        obj.emailIP = cols[iIP];
+        obj.emailRO = cols[iRO];
         
         obj.schedule = {};
-        for(let j=7; j<headers.length; j++) {
-            if(headers[j] && currentline[j]) obj.schedule[headers[j].trim()] = currentline[j].trim();
+        for(let j=startSchedule; j<headers.length; j++) {
+            if(headers[j] && cols[j]) obj.schedule[headers[j].trim()] = cols[j].trim();
         }
         result.push(obj);
       }
@@ -595,6 +614,9 @@
         } else {
             candidatesHtml = `<div class="space-y-2">`;
             results.slice(0, 3).forEach(item => {
+                 // SAFE NAME HANDLING: Escape single quotes in names like D'Souza
+                 const safeName = item.teacher.name.replace(/'/g, "\\'");
+                 
                  candidatesHtml += `
                     <div class="flex justify-between items-center bg-slate-900/50 p-2 rounded border border-slate-700/50">
                         <div>
@@ -603,7 +625,7 @@
                                 ${item.badges.map(b => `<span class="${b.color} mr-2">${b.text}</span>`).join('')}
                              </div>
                         </div>
-                        <button onclick="addToDraft('${item.teacher.name}', '${code}', 'P${p}', '${timeStr}', '${subjName}')" 
+                        <button onclick="addToDraft('${safeName}', '${code}', 'P${p}', '${timeStr}', '${subjName}')" 
                             class="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded transition-colors">
                             Add
                         </button>
