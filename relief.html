@@ -86,7 +86,7 @@
     <div>
       <h1 class="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
         <i class="ph ph-chalkboard-teacher text-blue-400"></i>
-        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.1</span>
+        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.2</span>
       </h1>
       <p class="text-slate-400 mt-1">Integrated Absence Management & Relief Assignment</p>
     </div>
@@ -138,7 +138,7 @@
                     Email didn't open? Click here to open manually.
                 </a>
             </div>
-            <p class="text-xs text-center text-slate-500 mt-2">Sends to: harman_johll@schools.gov.sg</p>
+            <p id="t_recipientDisplay" class="text-xs text-center text-slate-500 mt-2">Recipient will load automatically...</p>
         </div>
     </div>
 
@@ -230,10 +230,9 @@
     };
     const STORAGE_KEYS = { TRACKER: 'bty_relief_tracker' };
     
-    // Emails
+    // Fallback Email
     const EMAILS = {
-        TEACHER_RELIEF: "harman_johll@btyss.moe.edu.sg", // Receiver of individual task
-        ADMIN_IP: "harman_johll@schools.gov.sg"           // Receiver of summary/notification
+        FALLBACK_ADMIN: "harman_johll@schools.gov.sg" 
     };
 
     const SUBJECT_MAP = {
@@ -266,6 +265,7 @@
         t_notifyBtn: document.getElementById('t_notifyBtn'),
         t_fallbackLink: document.getElementById('t_fallbackLink'),
         t_manualLink: document.getElementById('t_manualLink'),
+        t_recipientDisplay: document.getElementById('t_recipientDisplay'),
         // Admin Mode
         a_teacherSelect: document.getElementById('a_teacherSelect'),
         a_dateInput: document.getElementById('a_dateInput'),
@@ -358,9 +358,14 @@
         const currentline = lines[i].split(','); 
         if(currentline.length < 7) continue; 
         const obj = {};
+        // 0: Dept, 1: Subj, 2: Subj2, 3: Name
+        // 4: Teacher Email, 5: IP Email, 6: RO Email
         obj.department = currentline[0];
         obj.name = currentline[3];
         obj.email = currentline[4];
+        obj.emailIP = currentline[5];
+        obj.emailRO = currentline[6];
+        
         obj.schedule = {};
         for(let j=7; j<headers.length; j++) {
             if(headers[j] && currentline[j]) obj.schedule[headers[j].trim()] = currentline[j].trim();
@@ -424,12 +429,18 @@
         if(!name || !dateVal) {
             els.t_classList.innerHTML = `<div class="text-center text-slate-500 py-8 italic">Select your name and date to see your classes.</div>`;
             els.t_notifyBtn.disabled = true;
+            els.t_recipientDisplay.textContent = "";
             return;
         }
 
         updateDateLogic('teacher'); // Calc week type
         
         const teacher = teachersData.find(t => t.name === name);
+        
+        // Show who will be notified
+        const recipient = teacher.emailIP ? `IP Head: ${teacher.emailIP}` : `Default Admin: ${EMAILS.FALLBACK_ADMIN}`;
+        els.t_recipientDisplay.textContent = `Will notify: ${recipient}`;
+
         let classesFound = false;
         let html = '';
 
@@ -489,9 +500,13 @@
         const instrParam = encodeURIComponent(JSON.stringify(instructions));
         const magicLink = `${baseUrl}?teacher=${encodeURIComponent(name)}&date=${date}&instr=${instrParam}`;
 
+        const niceDate = formatReadableDate(date);
+        
         // Build Email
-        const subject = `Absence Notification: ${name} (${date})`;
-        let body = `Dear IP Head,%0D%0A%0D%0AI am away on ${date}.%0D%0A%0D%0APlease click this link to assign relief (Instructions included):%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
+        // Use teacher's IP Head Email if available, else fallback
+        const recipient = teacher.emailIP || EMAILS.FALLBACK_ADMIN;
+        const subject = `Absence Notification: ${name} (${niceDate})`;
+        let body = `Dear IP Head,%0D%0A%0D%0AI am away on ${niceDate}.%0D%0A%0D%0APlease click this link to assign relief (Instructions included):%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
         
         for(let p=1; p<=11; p++) {
             const key = `${currentWeekType}${currentDayName}${p}`;
@@ -502,7 +517,7 @@
             }
         }
 
-        const mailtoUrl = `mailto:${EMAILS.ADMIN_IP}?subject=${subject}&body=${body}`;
+        const mailtoUrl = `mailto:${recipient}?subject=${subject}&body=${body}`;
         
         // TRIGGER EMAIL SAFELY
         triggerMailto(mailtoUrl, els.t_fallbackLink, els.t_manualLink);
@@ -725,6 +740,14 @@
         return `${date.getDate()}-${months[date.getMonth()]}-${date.getFullYear().toString().slice(-2)}`;
     }
 
+    function formatReadableDate(dateStr) {
+        const d = new Date(dateStr);
+        // e.g. Tuesday, 20 Jan 2026
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
     // --- DRAFT LOGIC ---
     window.addToDraft = (subName, code, period, timeStr, subjName) => {
         incrementReliefCount(subName);
@@ -732,8 +755,12 @@
         const dateStr = els.a_dateInput.value;
         const pNum = parseInt(period.replace('P',''));
         const instr = teacherInstructions[pNum] || "";
+        
+        // Find sub email
+        const subTeacher = teachersData.find(t => t.name === subName);
+        const subEmail = subTeacher ? subTeacher.email : "";
 
-        draftAssignments.push({ subName, code, period, timeStr, subjName, absentName, dateStr, instr });
+        draftAssignments.push({ subName, subEmail, code, period, timeStr, subjName, absentName, dateStr, instr });
         renderDraft();
         showToast("Added to Draft Plan");
         runAdminAnalysis(); 
@@ -748,9 +775,11 @@
 
         let html = '';
         draftAssignments.forEach((item, idx) => {
-            const subject = `Relief Duty: ${item.absentName} (${item.dateStr})`;
+            const niceDate = formatReadableDate(item.dateStr);
+            const subject = `Relief Duty: ${item.absentName} (${niceDate})`;
             const body = `Dear ${item.subName},%0D%0A%0D%0APlease cover the following lesson:%0D%0A${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})%0D%0A%0D%0ANotes: ${item.instr || "None"}%0D%0A%0D%0AThank you.`;
-            const mailto = `mailto:${EMAILS.TEACHER_RELIEF}?subject=${subject}&body=${body}`;
+            // Use specific relief teacher email
+            const mailto = `mailto:${item.subEmail}?subject=${subject}&body=${body}`;
 
             html += `
                 <div class="bg-slate-700/50 p-2 rounded border border-slate-600 flex justify-between items-start">
@@ -782,9 +811,15 @@
     window.sendAdminSummary = () => {
         if(draftAssignments.length === 0) return;
         const item = draftAssignments[0];
-        const subject = `Relief Plan: ${item.absentName} (${item.dateStr})`;
+        const niceDate = formatReadableDate(item.dateStr);
         
-        let body = `Dear Colleagues,%0D%0A%0D%0A${item.absentName} is away on ${item.dateStr}. We need help covering the following lessons:%0D%0A%0D%0A`;
+        // Find Absent Teacher emails for summary
+        const absentTeacher = teachersData.find(t => t.name === item.absentName);
+        const recipients = [absentTeacher.emailIP, absentTeacher.emailRO].filter(Boolean).join(',') || EMAILS.FALLBACK_ADMIN;
+        
+        const subject = `Relief Plan: ${item.absentName} (${niceDate})`;
+        
+        let body = `Dear Colleagues,%0D%0A%0D%0A${item.absentName} is away on ${niceDate}. We need help covering the following lessons:%0D%0A%0D%0A`;
         
         draftAssignments.forEach(d => {
             body += `* ${d.period} (${d.timeStr}): ${d.subjName} (${d.code})%0D%0A`;
@@ -794,7 +829,7 @@
         });
         
         body += `Thank you for your support.`;
-        const mailtoUrl = `mailto:${EMAILS.ADMIN_IP}?subject=${subject}&body=${body}`;
+        const mailtoUrl = `mailto:${recipients}?subject=${subject}&body=${body}`;
         
         triggerMailto(mailtoUrl, els.a_fallbackLink, els.a_manualLink);
         showToast("Opening Email Client...");
