@@ -15,10 +15,10 @@
   <style>
     /* === THEME === */
     :root {
-      --bg-color: #0F172A;
-      --card-bg: #1E293B;
-      --text-main: #F8FAFC;
-      --accent: #3B82F6;
+      --bg-color: #0F172A;      /* Slate 900 */
+      --card-bg: #1E293B;       /* Slate 800 */
+      --text-main: #F8FAFC;     /* Slate 50 */
+      --accent: #3B82F6;        /* Blue 500 */
     }
 
     body {
@@ -82,16 +82,21 @@
   <div id="toast"><i class="ph ph-check-circle text-lg align-middle mr-2"></i> Action Successful</div>
 
   <!-- HEADER -->
-  <header class="max-w-6xl mx-auto w-full mb-6 flex justify-between items-center">
+  <header class="max-w-6xl mx-auto w-full mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
     <div>
       <h1 class="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
         <i class="ph ph-chalkboard-teacher text-blue-400"></i>
-        BTY Relief Platform <span class="text-xs bg-emerald-600 px-2 py-0.5 rounded text-white ml-2">v4.4 (Personalized)</span>
+        BTY Relief Platform <span class="text-xs bg-indigo-600 px-2 py-0.5 rounded text-white ml-2">v5.1 (Warmth)</span>
       </h1>
       <p class="text-slate-400 mt-1">Integrated Absence Management & Relief Assignment</p>
     </div>
-    <div id="dataStatus" class="text-xs px-3 py-1 rounded-full bg-blue-900/30 text-blue-400 border border-blue-800 flex items-center gap-2">
-      <i class="ph ph-circle-notch animate-spin"></i> Loading Data...
+    <div class="flex flex-col items-end gap-2">
+        <div id="dataStatus" class="text-xs px-3 py-1 rounded-full bg-blue-900/30 text-blue-400 border border-blue-800 flex items-center gap-2">
+          <i class="ph ph-circle-notch animate-spin"></i> Loading Data...
+        </div>
+        <div id="timeWarning" class="hidden text-xs px-3 py-1 rounded-full bg-orange-900/30 text-orange-300 border border-orange-800 flex items-center gap-2">
+            <i class="ph ph-clock"></i> It is past 2:20 PM. Relief may no longer be required.
+        </div>
     </div>
   </header>
 
@@ -129,13 +134,24 @@
             <div id="t_classList" class="space-y-4 mb-8">
                 <div class="text-center text-slate-500 py-8 italic">Select your name and date to see your classes.</div>
             </div>
+            
+            <div class="mb-8">
+                <label class="block text-sm text-slate-400 mb-1">Link to Materials (Optional)</label>
+                <input type="text" id="t_materialLink" placeholder="e.g. OneDrive or Google Drive link..." class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
 
-            <button onclick="notifyAdmin()" id="t_notifyBtn" disabled class="w-full py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-lg flex justify-center items-center gap-2 transition-all">
-                <i class="ph ph-paper-plane-tilt text-xl"></i> Notify IP Head via Email
-            </button>
+            <div class="flex gap-4">
+                <button onclick="notifyAdmin('email')" id="t_notifyBtnEmail" disabled class="flex-1 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-lg flex justify-center items-center gap-2 transition-all">
+                    <i class="ph ph-envelope-simple text-xl"></i> Notify via Email
+                </button>
+                <button onclick="notifyAdmin('teams')" id="t_notifyBtnTeams" disabled class="flex-1 py-4 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow-lg flex justify-center items-center gap-2 transition-all">
+                    <i class="ph ph-chat-teardrop-text text-xl"></i> Notify via Teams
+                </button>
+            </div>
+            
             <div id="t_fallbackLink" class="text-center mt-4 hidden">
                 <a href="#" id="t_manualLink" target="_blank" class="text-blue-400 hover:text-blue-300 underline text-sm">
-                    Email didn't open? Click here to open manually.
+                    Link didn't open? Click here to open manually.
                 </a>
             </div>
             <p id="t_recipientDisplay" class="text-xs text-center text-slate-500 mt-2">Recipient will load automatically...</p>
@@ -166,6 +182,7 @@
                     <div id="a_instructionsBox" class="hidden bg-slate-800 p-3 rounded border border-slate-600">
                         <div class="text-xs text-orange-400 font-bold uppercase mb-1">Teacher Notes Detected</div>
                         <div id="a_instructionsContent" class="text-sm text-slate-300 italic"></div>
+                        <div id="a_materialsLink" class="mt-2 text-sm"></div>
                     </div>
 
                     <button onclick="runAdminAnalysis()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-lg">
@@ -185,18 +202,19 @@
                 <div id="draftList" class="space-y-2 mb-6 text-sm text-slate-300">
                     <div class="text-slate-500 italic">No assignments yet.</div>
                 </div>
-                <button onclick="sendAdminSummary()" id="btnAdminEmail" disabled class="w-full py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-sm font-medium flex justify-center items-center gap-2">
-                    <i class="ph ph-paper-plane-tilt"></i> Email Staff Summary
-                </button>
+                
+                <div class="flex gap-2">
+                    <button onclick="sendAdminSummary('email')" id="btnAdminEmail" disabled class="flex-1 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-sm font-medium flex justify-center items-center gap-2">
+                        <i class="ph ph-envelope-simple"></i> Email Summary
+                    </button>
+                    <!-- Teams Summary link isn't as clean for group chats, sticking to 1-1 or email for bulk -->
+                </div>
+
                 <div id="a_fallbackLink" class="text-center mt-2 hidden">
                     <a href="#" id="a_manualLink" target="_blank" class="text-blue-400 hover:text-blue-300 underline text-xs">
-                        Click to open email manually
+                        Click to open manually
                     </a>
                 </div>
-            </div>
-            
-            <div class="text-center">
-                 <button onclick="clearLocalStorage('tracker')" class="text-xs text-slate-500 hover:text-white underline">Reset Relief History</button>
             </div>
         </section>
 
@@ -228,11 +246,11 @@
         TIMETABLE: 'https://raw.githubusercontent.com/harmanjohll/btyrelief/refs/heads/main/BTYTT_2026Sem1_v1.csv',
         CALENDAR: 'https://raw.githubusercontent.com/harmanjohll/btyrelief/refs/heads/main/CalendarReference.csv'
     };
-    const STORAGE_KEYS = { TRACKER: 'bty_relief_tracker' };
     
-    // Fallback Email
+    // Emails
     const EMAILS = {
-        FALLBACK_ADMIN: "harman_johll@schools.gov.sg" 
+        FALLBACK_ADMIN: "harman_johll@schools.gov.sg",
+        TRACKING_BCC: "beattyadmin@btyss.moe.edu.sg"
     };
 
     const SUBJECT_MAP = {
@@ -248,10 +266,12 @@
     let currentDayName = '';
     let draftAssignments = [];
     let teacherInstructions = {}; 
+    let materialLink = "";
 
     // --- DOM ELEMENTS ---
     const els = {
         status: document.getElementById('dataStatus'),
+        timeWarning: document.getElementById('timeWarning'),
         toast: document.getElementById('toast'),
         // Views
         viewTeacher: document.getElementById('viewTeacher'),
@@ -262,16 +282,19 @@
         t_teacherSelect: document.getElementById('t_teacherSelect'),
         t_dateInput: document.getElementById('t_dateInput'),
         t_classList: document.getElementById('t_classList'),
-        t_notifyBtn: document.getElementById('t_notifyBtn'),
+        t_notifyBtnEmail: document.getElementById('t_notifyBtnEmail'),
+        t_notifyBtnTeams: document.getElementById('t_notifyBtnTeams'),
         t_fallbackLink: document.getElementById('t_fallbackLink'),
         t_manualLink: document.getElementById('t_manualLink'),
         t_recipientDisplay: document.getElementById('t_recipientDisplay'),
+        t_materialLink: document.getElementById('t_materialLink'),
         // Admin Mode
         a_teacherSelect: document.getElementById('a_teacherSelect'),
         a_dateInput: document.getElementById('a_dateInput'),
         a_weekType: document.getElementById('a_weekType'),
         a_instructionsBox: document.getElementById('a_instructionsBox'),
         a_instructionsContent: document.getElementById('a_instructionsContent'),
+        a_materialsLink: document.getElementById('a_materialsLink'),
         resultsList: document.getElementById('resultsList'),
         resultsTitle: document.getElementById('resultsTitle'),
         draftList: document.getElementById('draftList'),
@@ -287,25 +310,28 @@
         els.t_dateInput.value = today;
         els.a_dateInput.value = today;
 
+        checkTimeWarning();
         await fetchAllData();
 
-        // Check URL Params for Pre-population (Magic Link Logic)
+        // Magic Link Logic
         const urlParams = new URLSearchParams(window.location.search);
         const pTeacher = urlParams.get('teacher');
         const pDate = urlParams.get('date');
         const pInstr = urlParams.get('instr'); 
+        const pMat = urlParams.get('mat');
 
         if(pTeacher && pDate) {
             switchTab('admin');
-            els.a_teacherSelect.value = pTeacher;
+            els.a_teacherSelect.value = decodeURIComponent(pTeacher); // Decode name
             els.a_dateInput.value = pDate;
             
             if(pInstr) {
                 try {
                     const instrObj = JSON.parse(decodeURIComponent(pInstr));
                     teacherInstructions = instrObj;
-                    displayAdminInstructions(instrObj);
-                } catch(e) { console.error("Error parsing instructions", e); }
+                    materialLink = pMat ? decodeURIComponent(pMat) : "";
+                    displayAdminInstructions(instrObj, materialLink);
+                } catch(e) { console.error("Error parsing params", e); }
             }
 
             setTimeout(() => {
@@ -316,6 +342,16 @@
             switchTab('teacher'); 
         }
     });
+
+    function checkTimeWarning() {
+        const now = new Date();
+        const hour = now.getHours();
+        const min = now.getMinutes();
+        // Check if after 14:20 (2:20 PM)
+        if (hour > 14 || (hour === 14 && min >= 20)) {
+            els.timeWarning.classList.remove('hidden');
+        }
+    }
 
     // --- DATA FETCHING ---
     async function fetchAllData() {
@@ -354,7 +390,6 @@
       const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
       const headers = lines[0].split(',').map(h => h.trim());
       
-      // DYNAMIC INDEX SEARCH
       const idxName = headers.findIndex(h => h.toUpperCase().includes('NAME'));
       const idxEmail = headers.findIndex(h => h.toUpperCase().includes('EMAIL') && !h.toUpperCase().includes('IP') && !h.toUpperCase().includes('RO'));
       const idxIP = headers.findIndex(h => h.toUpperCase().includes('IP'));
@@ -370,11 +405,10 @@
       const result = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.trim().replace(/^"|"$/g, ''));
-        
         if(cols.length < startSchedule) continue; 
         
         const obj = {};
-        obj.department = cols[0]; // Assume 0 is always dept
+        obj.department = cols[0]; 
         obj.name = cols[iName];
         obj.email = cols[iEmail];
         obj.emailIP = cols[iIP];
@@ -389,7 +423,6 @@
       return result;
     }
 
-    // --- HELPER TO FIND TEACHER BY EMAIL ---
     function findTeacherByEmail(email) {
         if (!email) return null;
         return teachersData.find(t => t.email && t.email.toLowerCase().trim() === email.toLowerCase().trim());
@@ -443,24 +476,22 @@
     function updateTeacherView() {
         const name = els.t_teacherSelect.value;
         const dateVal = els.t_dateInput.value;
-        
         els.t_fallbackLink.classList.add('hidden'); 
 
         if(!name || !dateVal) {
             els.t_classList.innerHTML = `<div class="text-center text-slate-500 py-8 italic">Select your name and date to see your classes.</div>`;
-            els.t_notifyBtn.disabled = true;
+            els.t_notifyBtnEmail.disabled = true;
+            els.t_notifyBtnTeams.disabled = true;
             els.t_recipientDisplay.textContent = "";
             return;
         }
 
         updateDateLogic('teacher'); 
-        
         const teacher = teachersData.find(t => t.name === name);
-        
-        // Resolve IP Head Name if possible
         const ipHeadObj = findTeacherByEmail(teacher.emailIP);
-        const ipHeadName = ipHeadObj ? ipHeadObj.name : "IP Head";
-        const recipient = teacher.emailIP ? `${ipHeadName} (${teacher.emailIP})` : `Default Admin: ${EMAILS.FALLBACK_ADMIN}`;
+        // Clean Title Case Name
+        const ipHeadName = ipHeadObj ? toTitleCase(ipHeadObj.name) : "IP Head";
+        const recipient = teacher.emailIP ? `${ipHeadName} (${teacher.emailIP})` : `Default Admin`;
         
         els.t_recipientDisplay.textContent = `Will notify: ${recipient}`;
 
@@ -486,7 +517,7 @@
                             <div class="text-blue-400 text-sm">${subjInfo.name}</div>
                         </div>
                         <div class="w-full md:w-2/3">
-                            <input type="text" id="instr_p${p}" placeholder="Enter instructions for relief teacher..." 
+                            <input type="text" id="instr_p${p}" placeholder="Enter instructions..." 
                                 class="w-full bg-slate-900 border border-slate-700 rounded p-3 text-sm text-slate-200 focus:border-blue-500 outline-none">
                         </div>
                     </div>
@@ -496,43 +527,47 @@
 
         if(!classesFound) {
             html = `<div class="p-4 bg-emerald-900/20 border border-emerald-800 rounded text-center text-emerald-400">No classes found for this date. You are free!</div>`;
-            els.t_notifyBtn.disabled = true;
+            els.t_notifyBtnEmail.disabled = true;
+            els.t_notifyBtnTeams.disabled = true;
         } else {
-            els.t_notifyBtn.disabled = false;
+            els.t_notifyBtnEmail.disabled = false;
+            els.t_notifyBtnTeams.disabled = false;
         }
         
         els.t_classList.innerHTML = html;
     }
 
-    window.notifyAdmin = () => {
+    // --- NOTIFICATION HANDLER (EMAIL & TEAMS) ---
+    window.notifyAdmin = (platform) => {
         const name = els.t_teacherSelect.value;
         const date = els.t_dateInput.value;
+        const matLink = els.t_materialLink.value;
         const teacher = teachersData.find(t => t.name === name);
 
-        // Collect instructions
         const instructions = {};
         for(let p=1; p<=11; p++) {
             const input = document.getElementById(`instr_p${p}`);
-            if(input && input.value.trim()) {
-                instructions[p] = input.value.trim();
-            }
+            if(input && input.value.trim()) instructions[p] = input.value.trim();
         }
 
         const baseUrl = window.location.href.split('?')[0];
         const instrParam = encodeURIComponent(JSON.stringify(instructions));
-        const magicLink = `${baseUrl}?teacher=${encodeURIComponent(name)}&date=${date}&instr=${instrParam}`;
+        const matParam = encodeURIComponent(matLink);
+        const magicLink = `${baseUrl}?teacher=${encodeURIComponent(name)}&date=${date}&instr=${instrParam}&mat=${matParam}`;
 
         const niceDate = formatReadableDate(date);
         
-        // Build Email
+        // Recipient
         const recipient = teacher.emailIP || EMAILS.FALLBACK_ADMIN;
-        
-        // Personalize Greeting
         const ipHeadObj = findTeacherByEmail(teacher.emailIP);
-        const ipHeadName = ipHeadObj ? ipHeadObj.name : "IP Head";
+        const ipHeadName = ipHeadObj ? toTitleCase(ipHeadObj.name) : "IP Head";
+        const senderName = toTitleCase(name);
 
-        const subject = `Absence Notification: ${name} (${niceDate})`;
-        let body = `Dear ${ipHeadName},%0D%0A%0D%0AI am away on ${niceDate}.%0D%0A%0D%0APlease click this link to assign relief (Instructions included):%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
+        // Subject
+        const subject = `Request for Support - Relief for ${senderName} (${niceDate})`;
+        
+        // Message Body
+        let body = `Dear ${ipHeadName},%0D%0A%0D%0A${senderName} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lessons. Some instructions are available for your reference, too.%0D%0A%0D%0ALink to Materials: ${matLink || "None"}%0D%0A%0D%0APlease click this link to assign relief:%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
         
         for(let p=1; p<=11; p++) {
             const key = `${currentWeekType}${currentDayName}${p}`;
@@ -543,10 +578,21 @@
             }
         }
 
-        const mailtoUrl = `mailto:${recipient}?subject=${subject}&body=${body}`;
+        body += `%0D%0AThank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
+
+        let finalUrl = "";
+        if(platform === 'email') {
+            finalUrl = `mailto:${recipient}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${body}`;
+        } else {
+            // Teams Deep Link
+            // Teams doesn't support 'Subject' or 'BCC' in URL scheme the same way, puts everything in message body.
+            // Using recipient email as user ID.
+            const decodedBody = decodeURIComponent(body).replace(/%0D%0A/g, '\n'); // Teams prefers \n
+            finalUrl = `https://teams.microsoft.com/l/chat/0/0?users=${recipient}&message=${encodeURIComponent("Subject: " + subject + "\n\n" + decodedBody)}`;
+        }
         
-        triggerMailto(mailtoUrl, els.t_fallbackLink, els.t_manualLink);
-        showToast("Opening Email Client...");
+        triggerMailto(finalUrl, els.t_fallbackLink, els.t_manualLink);
+        showToast(`Opening ${platform === 'email' ? 'Email Client' : 'Microsoft Teams'}...`);
     };
 
     // --- ADMIN MODE LOGIC ---
@@ -559,7 +605,7 @@
         updateDateLogic('admin'); 
         const teacher = teachersData.find(t => t.name === name);
         
-        els.resultsTitle.textContent = `Relief Plan: ${name}`;
+        els.resultsTitle.textContent = `Relief Plan: ${toTitleCase(name)}`;
         els.resultsList.innerHTML = '';
 
         let tasksFound = 0;
@@ -583,15 +629,27 @@
         }
     };
 
-    function displayAdminInstructions(instrObj) {
-        if(Object.keys(instrObj).length > 0) {
+    function displayAdminInstructions(instrObj, matLink) {
+        let hasInstr = Object.keys(instrObj).length > 0;
+        if(hasInstr || matLink) {
             els.a_instructionsBox.classList.remove('hidden');
             let html = '';
             for(const [p, text] of Object.entries(instrObj)) {
                 html += `<div><span class="font-bold text-slate-400">P${p}:</span> ${text}</div>`;
             }
             els.a_instructionsContent.innerHTML = html;
+            if(matLink) {
+                els.a_materialsLink.innerHTML = `<span class="font-bold text-blue-400">Materials:</span> <a href="${matLink}" target="_blank" class="underline text-white truncate block">${matLink}</a>`;
+            }
         }
+    }
+
+    function getWeeklyLoad(teacher, weekType) {
+        let count = 0;
+        for (const key in teacher.schedule) {
+            if (key.startsWith(weekType) && teacher.schedule[key] !== "0") count++;
+        }
+        return count;
     }
 
     function renderAdminCard(p, timeStr, code, subjName, results, absentTeacher, instr) {
@@ -619,16 +677,19 @@
             candidatesHtml = `<div class="text-xs text-red-400">No free teachers found.</div>`;
         } else {
             candidatesHtml = `<div class="space-y-2">`;
-            results.slice(0, 3).forEach(item => {
-                 // SAFE NAME HANDLING: Escape single quotes in names like D'Souza
+            results.slice(0, 6).forEach(item => {
                  const safeName = item.teacher.name.replace(/'/g, "\\'");
+                 const titleName = toTitleCase(item.teacher.name);
+                 const weeklyLoad = item.weeklyLoad;
                  
                  candidatesHtml += `
                     <div class="flex justify-between items-center bg-slate-900/50 p-2 rounded border border-slate-700/50">
                         <div>
-                             <div class="text-sm text-slate-200 font-medium">${item.teacher.name}</div>
-                             <div class="text-[10px] text-slate-400">
-                                ${item.badges.map(b => `<span class="${b.color} mr-2">${b.text}</span>`).join('')}
+                             <div class="text-sm text-slate-200 font-medium">${titleName}</div>
+                             <div class="text-[10px] text-slate-400 flex gap-2">
+                                <span>${item.badges.map(b => `<span class="${b.color} mr-1">${b.text}</span>`).join('')}</span>
+                                <span class="text-slate-500">|</span>
+                                <span class="text-emerald-400">Loads: ${item.dailyLoad} today / ${weeklyLoad} week</span>
                              </div>
                         </div>
                         <button onclick="addToDraft('${safeName}', '${code}', 'P${p}', '${timeStr}', '${subjName}')" 
@@ -672,7 +733,7 @@
                 badges.push({ text: "Same Dept", color: "text-blue-400" });
             }
 
-            // Load
+            // Daily Load
             let dailyLoad = 0;
             for(let k in candidate.schedule) {
                 if(k.startsWith(dayPrefix) && candidate.schedule[k] !== "0") dailyLoad++;
@@ -684,17 +745,16 @@
                 score -= (dailyLoad * 5);
             }
 
-            // Relief Tracker
-            const reliefCount = getReliefCount(candidate.name);
-            score -= (reliefCount * 10);
+            const weeklyLoad = getWeeklyLoad(candidate, currentWeekType);
+            score -= weeklyLoad; 
 
-            results.push({ teacher: candidate, score, badges, isMatch, dailyLoad });
+            results.push({ teacher: candidate, score, badges, isMatch, dailyLoad, weeklyLoad });
         });
 
         let filtered = results.filter(r => r.isMatch);
         if(filtered.length === 0) {
             results.sort((a,b) => b.score - a.score);
-            return results.slice(0,3).map(r => {
+            return results.slice(0, 6).map(r => {
                 r.badges.push({ text: "Non-Specialist", color: "text-slate-500" });
                 return r;
             });
@@ -735,12 +795,10 @@
     }
 
     function getTimeForPeriod(p, day) {
-        // Bell Schedule: Mon, Tue, Thu, Fri: 07:55 start. Wed: 08:30 (P2)
         let startMin = (7 * 60) + 55; 
         let offset = (p - 1) * 35;
         let pStartMin = startMin + offset;
         let pEndMin = pStartMin + 35;
-        
         if(day === 'Wed' && p === 1) return "Assembly/N.A.";
         return `${formatTime(pStartMin)} - ${formatTime(pEndMin)}`;
     }
@@ -770,28 +828,28 @@
 
     function formatReadableDate(dateStr) {
         const d = new Date(dateStr);
-        // e.g. Tuesday, 20 Jan 2026
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
         return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
     }
 
+    // Capitalize names (MS JOANNA -> Ms Joanna)
+    function toTitleCase(str) {
+        return str.toLowerCase().replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
+    }
+
     // --- DRAFT LOGIC ---
     window.addToDraft = (subName, code, period, timeStr, subjName) => {
-        incrementReliefCount(subName);
         const absentName = els.a_teacherSelect.value;
         const dateStr = els.a_dateInput.value;
         const pNum = parseInt(period.replace('P',''));
         const instr = teacherInstructions[pNum] || "";
-        
-        // Find sub email
         const subTeacher = teachersData.find(t => t.name === subName);
         const subEmail = subTeacher ? subTeacher.email : "";
 
         draftAssignments.push({ subName, subEmail, code, period, timeStr, subjName, absentName, dateStr, instr });
         renderDraft();
         showToast("Added to Draft Plan");
-        runAdminAnalysis(); 
     };
 
     function renderDraft() {
@@ -804,21 +862,31 @@
         let html = '';
         draftAssignments.forEach((item, idx) => {
             const niceDate = formatReadableDate(item.dateStr);
-            const subject = `Relief Duty: ${item.absentName} (${niceDate})`;
-            const body = `Dear ${item.subName},%0D%0A%0D%0APlease cover the following lesson:%0D%0A${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})%0D%0A%0D%0ANotes: ${item.instr || "None"}%0D%0A%0D%0AThank you.`;
-            // Use specific relief teacher email
-            const mailto = `mailto:${item.subEmail}?subject=${subject}&body=${body}`;
+            const absentNice = toTitleCase(item.absentName);
+            const subNice = toTitleCase(item.subName);
+            
+            const subject = `Request for Support - Relief for ${absentNice} (${niceDate})`;
+            const body = `Dear ${subNice},%0D%0A%0D%0A${absentNice} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lesson. Some instructions are available for your reference, too.%0D%0A%0D%0A${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})%0D%0A%0D%0ANotes: ${item.instr || "None"}%0D%0A%0D%0AThank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
+            
+            const mailto = `mailto:${item.subEmail}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${body}`;
+            
+            // TEAMS MSG (Simplified, no BCC)
+            const teamsMsg = `Dear ${subNice},\n\n${absentNice} will be away on ${niceDate}.\n\nWe need your help to cover the following lesson. Some instructions are available for your reference, too.\n\n${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})\n\nNotes: ${item.instr || "None"}\n\nThank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
+            const teamsUrl = `https://teams.microsoft.com/l/chat/0/0?users=${item.subEmail}&message=${encodeURIComponent(teamsMsg)}`;
 
             html += `
                 <div class="bg-slate-700/50 p-2 rounded border border-slate-600 flex justify-between items-start">
                     <div>
-                        <div class="text-sm font-bold text-emerald-400">${item.subName}</div>
+                        <div class="text-sm font-bold text-emerald-400">${subNice}</div>
                         <div class="text-xs text-slate-300">${item.period} (${item.timeStr})</div>
                         <div class="text-xs text-slate-400">${item.subjName}</div>
                     </div>
-                    <div class="flex flex-col gap-1">
-                        <a href="${mailto}" target="_blank" class="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] rounded text-center">Notify</a>
-                        <button onclick="removeDraft(${idx})" class="text-red-400 hover:text-red-300 text-[10px]">Remove</button>
+                    <div class="flex flex-col gap-1 items-end">
+                        <div class="flex gap-1">
+                            <a href="${teamsUrl}" target="_blank" class="px-2 py-1 bg-purple-700 hover:bg-purple-600 text-white text-[10px] rounded flex items-center gap-1"><i class="ph ph-chat-teardrop-text"></i> Teams</a>
+                            <a href="${mailto}" target="_blank" class="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] rounded flex items-center gap-1"><i class="ph ph-envelope"></i> Email</a>
+                        </div>
+                        <button onclick="removeDraft(${idx})" class="text-red-400 hover:text-red-300 text-[10px] mt-1">Remove</button>
                     </div>
                 </div>
             `;
@@ -836,57 +904,44 @@
         renderDraft();
     }
 
-    window.sendAdminSummary = () => {
+    window.sendAdminSummary = (platform) => {
         if(draftAssignments.length === 0) return;
         const item = draftAssignments[0];
         const niceDate = formatReadableDate(item.dateStr);
+        const absentNice = toTitleCase(item.absentName);
         
-        // COLLECT RECIPIENTS AND NAMES FROM DRAFT
+        // Find recipients
         const uniqueSubs = {};
-        draftAssignments.forEach(d => {
-            if(d.subEmail) uniqueSubs[d.subEmail] = d.subName;
-        });
-
-        const recipientEmails = Object.keys(uniqueSubs).join(',');
+        draftAssignments.forEach(d => { if(d.subEmail) uniqueSubs[d.subEmail] = toTitleCase(d.subName); });
+        const recipientEmails = Object.keys(uniqueSubs).join(';'); // Use semicolon
         const recipientNames = Object.values(uniqueSubs).join(', ');
-
+        
+        // If no emails found (testing), fallback
         const finalTo = recipientEmails || EMAILS.FALLBACK_ADMIN;
         
-        const subject = `Relief Plan: ${item.absentName} (${niceDate})`;
+        const subject = `Request for Support - Relief for ${absentNice} (${niceDate})`;
         
-        // UPDATED GREETING
-        let body = `Dear ${recipientNames || "Colleagues"},%0D%0A%0D%0A${item.absentName} is away on ${niceDate}. We need help covering the following lessons:%0D%0A%0D%0A`;
-        
+        let body = `Dear ${recipientNames || "Colleagues"},%0D%0A%0D%0A${absentNice} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lessons. Some instructions are available for your reference, too.%0D%0A%0D%0A`;
         draftAssignments.forEach(d => {
             body += `* ${d.period} (${d.timeStr}): ${d.subjName} (${d.code})%0D%0A`;
-            body += `   Covered by: ${d.subName}%0D%0A`;
+            body += `   Covered by: ${toTitleCase(d.subName)}%0D%0A`;
             if(d.instr) body += `   Instructions: ${d.instr}%0D%0A`;
             body += `%0D%0A`;
         });
+        body += `Thank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
         
-        body += `Thank you for your support.`;
-        const mailtoUrl = `mailto:${finalTo}?subject=${subject}&body=${body}`;
+        const mailtoUrl = `mailto:${finalTo}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${body}`;
         
         triggerMailto(mailtoUrl, els.a_fallbackLink, els.a_manualLink);
         showToast("Opening Email Client...");
     }
 
-    // --- HELPER: ROBUST EMAIL TRIGGER ---
     function triggerMailto(url, fallbackContainer, linkElement) {
-        // 1. Try simple window.location (cleanest if allowed)
-        // 2. Fallback to window.open
-        // 3. Fallback to showing visual link
-        
-        // Update the manual link href immediately just in case
         linkElement.href = url;
-        
         try {
-            // Attempt standard navigation
-            // Using a short timeout to allow the Toast to render first if needed
             setTimeout(() => {
                 const win = window.open(url, '_blank');
                 if (!win || win.closed || typeof win.closed == 'undefined') {
-                    // Pop-up blocked or failed
                     console.warn("Popup blocked. Showing manual link.");
                     fallbackContainer.classList.remove('hidden');
                 }
@@ -897,29 +952,11 @@
         }
     }
 
-    // --- TRACKER ---
-    function getReliefCount(name) {
-        const data = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRACKER) || '{}');
-        return data[name] || 0;
-    }
-    function incrementReliefCount(name) {
-        const data = JSON.parse(localStorage.getItem(STORAGE_KEYS.TRACKER) || '{}');
-        data[name] = (data[name] || 0) + 1;
-        localStorage.setItem(STORAGE_KEYS.TRACKER, JSON.stringify(data));
-    }
-    window.clearLocalStorage = () => {
-        if(confirm("Clear Relief History?")) {
-            localStorage.removeItem(STORAGE_KEYS.TRACKER);
-            location.reload();
-        }
-    }
-    
     function showToast(msg) {
         els.toast.innerHTML = `<i class="ph ph-check-circle text-lg align-middle mr-2"></i> ${msg}`;
         els.toast.classList.add('show');
         setTimeout(() => els.toast.classList.remove('show'), 3000);
     }
-
   </script>
 </body>
 </html>
