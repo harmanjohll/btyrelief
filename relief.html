@@ -86,7 +86,7 @@
     <div>
       <h1 class="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
         <i class="ph ph-chalkboard-teacher text-blue-400"></i>
-        BTY Relief Platform <span class="text-xs bg-indigo-600 px-2 py-0.5 rounded text-white ml-2">v5.1 (Warmth)</span>
+        BTY Relief Platform <span class="text-xs bg-indigo-600 px-2 py-0.5 rounded text-white ml-2">v5.2 (Consolidated)</span>
       </h1>
       <p class="text-slate-400 mt-1">Integrated Absence Management & Relief Assignment</p>
     </div>
@@ -199,15 +199,14 @@
                     </h2>
                     <button onclick="clearDraft()" class="text-xs text-red-400 hover:text-red-300">Clear</button>
                 </div>
-                <div id="draftList" class="space-y-2 mb-6 text-sm text-slate-300">
+                <div id="draftList" class="space-y-4 mb-6 text-sm text-slate-300">
                     <div class="text-slate-500 italic">No assignments yet.</div>
                 </div>
                 
                 <div class="flex gap-2">
                     <button onclick="sendAdminSummary('email')" id="btnAdminEmail" disabled class="flex-1 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded text-sm font-medium flex justify-center items-center gap-2">
-                        <i class="ph ph-envelope-simple"></i> Email Summary
+                        <i class="ph ph-envelope-simple"></i> Email Staff Summary
                     </button>
-                    <!-- Teams Summary link isn't as clean for group chats, sticking to 1-1 or email for bulk -->
                 </div>
 
                 <div id="a_fallbackLink" class="text-center mt-2 hidden">
@@ -322,7 +321,7 @@
 
         if(pTeacher && pDate) {
             switchTab('admin');
-            els.a_teacherSelect.value = decodeURIComponent(pTeacher); // Decode name
+            els.a_teacherSelect.value = decodeURIComponent(pTeacher); 
             els.a_dateInput.value = pDate;
             
             if(pInstr) {
@@ -347,7 +346,6 @@
         const now = new Date();
         const hour = now.getHours();
         const min = now.getMinutes();
-        // Check if after 14:20 (2:20 PM)
         if (hour > 14 || (hour === 14 && min >= 20)) {
             els.timeWarning.classList.remove('hidden');
         }
@@ -489,7 +487,6 @@
         updateDateLogic('teacher'); 
         const teacher = teachersData.find(t => t.name === name);
         const ipHeadObj = findTeacherByEmail(teacher.emailIP);
-        // Clean Title Case Name
         const ipHeadName = ipHeadObj ? toTitleCase(ipHeadObj.name) : "IP Head";
         const recipient = teacher.emailIP ? `${ipHeadName} (${teacher.emailIP})` : `Default Admin`;
         
@@ -557,16 +554,13 @@
 
         const niceDate = formatReadableDate(date);
         
-        // Recipient
         const recipient = teacher.emailIP || EMAILS.FALLBACK_ADMIN;
         const ipHeadObj = findTeacherByEmail(teacher.emailIP);
         const ipHeadName = ipHeadObj ? toTitleCase(ipHeadObj.name) : "IP Head";
         const senderName = toTitleCase(name);
 
-        // Subject
         const subject = `Request for Support - Relief for ${senderName} (${niceDate})`;
         
-        // Message Body
         let body = `Dear ${ipHeadName},%0D%0A%0D%0A${senderName} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lessons. Some instructions are available for your reference, too.%0D%0A%0D%0ALink to Materials: ${matLink || "None"}%0D%0A%0D%0APlease click this link to assign relief:%0D%0A${encodeURIComponent(magicLink)}%0D%0A%0D%0AClasses:%0D%0A`;
         
         for(let p=1; p<=11; p++) {
@@ -584,14 +578,11 @@
         if(platform === 'email') {
             finalUrl = `mailto:${recipient}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${body}`;
         } else {
-            // Teams Deep Link
-            // Teams doesn't support 'Subject' or 'BCC' in URL scheme the same way, puts everything in message body.
-            // Using recipient email as user ID.
-            const decodedBody = decodeURIComponent(body).replace(/%0D%0A/g, '\n'); // Teams prefers \n
+            const decodedBody = decodeURIComponent(body).replace(/%0D%0A/g, '\n');
             finalUrl = `https://teams.microsoft.com/l/chat/0/0?users=${recipient}&message=${encodeURIComponent("Subject: " + subject + "\n\n" + decodedBody)}`;
         }
         
-        triggerMailto(finalUrl, els.t_fallbackLink, els.t_manualLink);
+        triggerLink(finalUrl, els.t_fallbackLink, els.t_manualLink);
         showToast(`Opening ${platform === 'email' ? 'Email Client' : 'Microsoft Teams'}...`);
     };
 
@@ -718,7 +709,6 @@
             let badges = [];
             let isMatch = false;
 
-            // Subject
             const teachesSubject = Object.values(candidate.schedule).some(v => v && v.includes(neededSubjectCode));
             if(teachesSubject) {
                 score += 100;
@@ -726,14 +716,12 @@
                 badges.push({ text: `Teaches ${neededSubjectCode}`, color: "text-purple-400" });
             }
 
-            // Dept
             if(candidate.department === absentTeacher.department) {
                 score += 40;
                 isMatch = true;
                 badges.push({ text: "Same Dept", color: "text-blue-400" });
             }
 
-            // Daily Load
             let dailyLoad = 0;
             for(let k in candidate.schedule) {
                 if(k.startsWith(dayPrefix) && candidate.schedule[k] !== "0") dailyLoad++;
@@ -833,7 +821,6 @@
         return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
     }
 
-    // Capitalize names (MS JOANNA -> Ms Joanna)
     function toTitleCase(str) {
         return str.toLowerCase().replace(/(?:^|\s)\S/g, function(a) { return a.toUpperCase(); });
     }
@@ -852,6 +839,7 @@
         showToast("Added to Draft Plan");
     };
 
+    // Updated renderDraft with Consolidated Logic
     function renderDraft() {
         if(draftAssignments.length === 0) {
             els.draftList.innerHTML = `<div class="text-slate-500 italic">No assignments yet.</div>`;
@@ -859,46 +847,85 @@
             return;
         }
 
+        // Group Assignments by Relief Teacher
+        const grouped = {};
+        draftAssignments.forEach((item, index) => {
+            if (!grouped[item.subName]) {
+                grouped[item.subName] = { 
+                    name: item.subName, 
+                    email: item.subEmail, 
+                    absentName: item.absentName,
+                    dateStr: item.dateStr,
+                    tasks: [] 
+                };
+            }
+            grouped[item.subName].tasks.push({ ...item, index });
+        });
+
         let html = '';
-        draftAssignments.forEach((item, idx) => {
-            const niceDate = formatReadableDate(item.dateStr);
-            const absentNice = toTitleCase(item.absentName);
-            const subNice = toTitleCase(item.subName);
-            
+        
+        Object.values(grouped).forEach(group => {
+            const niceDate = formatReadableDate(group.dateStr);
+            const absentNice = toTitleCase(group.absentName);
+            const subNice = toTitleCase(group.name);
             const subject = `Request for Support - Relief for ${absentNice} (${niceDate})`;
-            const body = `Dear ${subNice},%0D%0A%0D%0A${absentNice} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lesson. Some instructions are available for your reference, too.%0D%0A%0D%0A${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})%0D%0A%0D%0ANotes: ${item.instr || "None"}%0D%0A%0D%0AThank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
             
-            const mailto = `mailto:${item.subEmail}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${body}`;
-            
-            // TEAMS MSG (Simplified, no BCC)
-            const teamsMsg = `Dear ${subNice},\n\n${absentNice} will be away on ${niceDate}.\n\nWe need your help to cover the following lesson. Some instructions are available for your reference, too.\n\n${item.period} (${item.timeStr}) - ${item.subjName} (${item.code})\n\nNotes: ${item.instr || "None"}\n\nThank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
-            const teamsUrl = `https://teams.microsoft.com/l/chat/0/0?users=${item.subEmail}&message=${encodeURIComponent(teamsMsg)}`;
+            // Generate Consolidated Body
+            let taskListText = "";
+            let emailBodyTasks = "";
+            let teamsBodyTasks = "";
+
+            group.tasks.forEach(task => {
+                taskListText += `<div class="text-xs text-slate-300 ml-2 border-l-2 border-slate-600 pl-2 mb-1">
+                                    <span class="text-white font-bold">${task.period}</span> 
+                                    <span class="text-slate-400">(${task.timeStr})</span> - ${task.subjName}
+                                    <div class="text-[10px] text-orange-300 italic">Note: ${task.instr || "None"}</div>
+                                 </div>`;
+                
+                emailBodyTasks += `${task.period} (${task.timeStr}) - ${task.subjName} (${task.code})%0D%0ANotes: ${task.instr || "None"}%0D%0A%0D%0A`;
+                teamsBodyTasks += `${task.period} (${task.timeStr}) - ${task.subjName} (${task.code})\nNotes: ${task.instr || "None"}\n\n`;
+            });
+
+            // Email Link
+            const emailBody = `Dear ${subNice},%0D%0A%0D%0A${absentNice} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lessons:%0D%0A%0D%0A${emailBodyTasks}Thank you so much for helping to cover the lessons. If you need anything, please check in with your IP Head/RO. Keep well, and have a lovely day ahead!`;
+            const mailto = `mailto:${group.email}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${emailBody}`;
+
+            // Teams Link
+            const teamsMsg = `Dear ${subNice},\n\n${absentNice} will be away on ${niceDate}.\n\nWe need your help to cover:\n\n${teamsBodyTasks}Thank you so much for helping!`;
+            const teamsUrl = `https://teams.microsoft.com/l/chat/0/0?users=${group.email}&message=${encodeURIComponent(teamsMsg)}`;
 
             html += `
-                <div class="bg-slate-700/50 p-2 rounded border border-slate-600 flex justify-between items-start">
-                    <div>
+                <div class="bg-slate-700/50 p-3 rounded border border-slate-600 mb-3">
+                    <div class="flex justify-between items-start mb-2">
                         <div class="text-sm font-bold text-emerald-400">${subNice}</div>
-                        <div class="text-xs text-slate-300">${item.period} (${item.timeStr})</div>
-                        <div class="text-xs text-slate-400">${item.subjName}</div>
+                        <button onclick="removeGroup('${group.name}')" class="text-red-400 hover:text-red-300 text-[10px] underline">Remove All</button>
                     </div>
-                    <div class="flex flex-col gap-1 items-end">
-                        <div class="flex gap-1">
-                            <a href="${teamsUrl}" target="_blank" class="px-2 py-1 bg-purple-700 hover:bg-purple-600 text-white text-[10px] rounded flex items-center gap-1"><i class="ph ph-chat-teardrop-text"></i> Teams</a>
-                            <a href="${mailto}" target="_blank" class="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white text-[10px] rounded flex items-center gap-1"><i class="ph ph-envelope"></i> Email</a>
-                        </div>
-                        <button onclick="removeDraft(${idx})" class="text-red-400 hover:text-red-300 text-[10px] mt-1">Remove</button>
+                    
+                    <div class="mb-3">
+                        ${taskListText}
+                    </div>
+
+                    <div class="flex gap-2 justify-end">
+                        <button onclick="triggerLink('${teamsUrl}', document.getElementById('a_fallbackLink'), document.getElementById('a_manualLink'))" class="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white text-xs rounded flex items-center gap-1 transition-colors">
+                            <i class="ph ph-chat-teardrop-text"></i> Notify Teams
+                        </button>
+                        <button onclick="triggerLink('${mailto}', document.getElementById('a_fallbackLink'), document.getElementById('a_manualLink'))" class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded flex items-center gap-1 transition-colors">
+                            <i class="ph ph-envelope"></i> Notify Email
+                        </button>
                     </div>
                 </div>
             `;
         });
+
         els.draftList.innerHTML = html;
         els.btnAdminEmail.disabled = false;
     }
 
-    window.removeDraft = (idx) => {
-        draftAssignments.splice(idx, 1);
+    window.removeGroup = (subName) => {
+        draftAssignments = draftAssignments.filter(item => item.subName !== subName);
         renderDraft();
-    }
+    };
+
     window.clearDraft = () => {
         draftAssignments = [];
         renderDraft();
@@ -910,18 +937,17 @@
         const niceDate = formatReadableDate(item.dateStr);
         const absentNice = toTitleCase(item.absentName);
         
-        // Find recipients
         const uniqueSubs = {};
         draftAssignments.forEach(d => { if(d.subEmail) uniqueSubs[d.subEmail] = toTitleCase(d.subName); });
-        const recipientEmails = Object.keys(uniqueSubs).join(';'); // Use semicolon
+        const recipientEmails = Object.keys(uniqueSubs).join(';'); 
         const recipientNames = Object.values(uniqueSubs).join(', ');
         
-        // If no emails found (testing), fallback
         const finalTo = recipientEmails || EMAILS.FALLBACK_ADMIN;
-        
         const subject = `Request for Support - Relief for ${absentNice} (${niceDate})`;
         
         let body = `Dear ${recipientNames || "Colleagues"},%0D%0A%0D%0A${absentNice} will be away on ${niceDate}.%0D%0A%0D%0AWe need your help to cover the following lessons. Some instructions are available for your reference, too.%0D%0A%0D%0A`;
+        
+        // Group by time for summary logic, or list linearly? Linear is clearer for summary.
         draftAssignments.forEach(d => {
             body += `* ${d.period} (${d.timeStr}): ${d.subjName} (${d.code})%0D%0A`;
             body += `   Covered by: ${toTitleCase(d.subName)}%0D%0A`;
@@ -932,22 +958,31 @@
         
         const mailtoUrl = `mailto:${finalTo}?bcc=${EMAILS.TRACKING_BCC}&subject=${subject}&body=${body}`;
         
-        triggerMailto(mailtoUrl, els.a_fallbackLink, els.a_manualLink);
+        triggerLink(mailtoUrl, els.a_fallbackLink, els.a_manualLink);
         showToast("Opening Email Client...");
     }
 
-    function triggerMailto(url, fallbackContainer, linkElement) {
+    // Improved Trigger Logic for Cross-Device
+    function triggerLink(url, fallbackContainer, linkElement) {
         linkElement.href = url;
+        
+        // 1. Try standard window.open (Works best for Teams/Deep Links on desktop)
+        // 2. If it's a Mailto, try window.location (Better for Mobile mail apps)
+        
+        if (url.startsWith('mailto:')) {
+            window.location.href = url;
+            return;
+        }
+
+        // For Teams or others
         try {
-            setTimeout(() => {
-                const win = window.open(url, '_blank');
-                if (!win || win.closed || typeof win.closed == 'undefined') {
-                    console.warn("Popup blocked. Showing manual link.");
-                    fallbackContainer.classList.remove('hidden');
-                }
-            }, 100);
+            const win = window.open(url, '_blank');
+            if (!win || win.closed || typeof win.closed == 'undefined') {
+                console.warn("Popup blocked. Showing manual link.");
+                fallbackContainer.classList.remove('hidden');
+            }
         } catch (e) {
-            console.error("Email trigger failed", e);
+            console.error("Trigger failed", e);
             fallbackContainer.classList.remove('hidden');
         }
     }
